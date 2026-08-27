@@ -117,9 +117,11 @@ export function MarkerDots({
           <button
             key={i}
             className={`marker ${done ? "is-done" : ""} ${i === value ? "is-next" : ""}`}
-            aria-label={done ? `Action ${i + 1} complete — tap to undo` : `Action ${i + 1}`}
+            aria-label={done ? `${i + 1} of ${max} complete — tap to undo` : `${i + 1} of ${max}`}
             onClick={isLast && onUndoLast ? onUndoLast : undefined}
-          />
+          >
+            {trackId === "bring" ? i + 1 : ""}
+          </button>
         );
       })}
     </div>

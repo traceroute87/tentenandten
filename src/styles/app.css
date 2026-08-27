@@ -63,6 +63,19 @@ textarea {
   text-transform: uppercase;
 }
 
+/* the red separator dot in the 10·10·10 wordmark — a real disc, not a glyph */
+.dot {
+  display: inline-block;
+  width: 0.15em;
+  height: 0.15em;
+  border-radius: 50%;
+  background: var(--red);
+  color: transparent;
+  overflow: hidden;
+  vertical-align: 0.32em;
+  margin: 0 0.12em;
+}
+
 /* ---------- app shell ---------- */
 .app {
   position: relative;
@@ -122,12 +135,11 @@ textarea {
   line-height: 1;
 }
 .brand__mark .dot {
-  color: var(--red);
-  margin: 0 0.06em;
+  vertical-align: 0.26em;
 }
 .brand__tag {
-  font-size: 11px;
-  letter-spacing: 0.14em;
+  font-size: 10.5px;
+  letter-spacing: 0.11em;
   text-transform: uppercase;
   color: var(--text-dim);
 }
@@ -225,7 +237,7 @@ textarea {
 .btn--primary {
   background: var(--red);
   color: #fff;
-  box-shadow: 0 6px 18px rgba(193, 39, 45, 0.35);
+  box-shadow: 0 2px 8px rgba(193, 39, 45, 0.22);
 }
 .btn--primary:hover {
   background: var(--red-strong);
@@ -278,7 +290,7 @@ textarea {
 .section-label {
   font-size: 12px;
   font-weight: 600;
-  letter-spacing: 0.16em;
+  letter-spacing: 0.09em;
   text-transform: uppercase;
   color: var(--text-dim);
   margin-bottom: 10px;
@@ -295,11 +307,16 @@ textarea {
   overflow: hidden;
   border: 1px solid var(--border);
 }
-.hero img {
+.hero picture {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+.hero__img {
   width: 100%;
   height: 100%;
   object-fit: cover;
-  object-position: 50% 32%;
+  object-position: 68% 30%;
 }
 .hero::after {
   content: "";
@@ -323,16 +340,16 @@ textarea {
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 6px;
+  gap: 4px;
   background: none;
   padding: 0;
 }
 .ring__dial {
   position: relative;
-  width: 84px;
-  height: 84px;
+  width: 78px;
+  height: 78px;
 }
-.ring__dial svg {
+.ring__dial > svg {
   width: 100%;
   height: 100%;
   transform: rotate(-90deg);
@@ -502,7 +519,7 @@ textarea {
   display: grid;
   place-items: center;
   background: var(--red);
-  box-shadow: 0 10px 30px rgba(193, 39, 45, 0.35);
+  box-shadow: 0 6px 20px rgba(193, 39, 45, 0.28);
 }
 .track__badge svg {
   width: 40px;
@@ -534,17 +551,24 @@ textarea {
   display: flex;
   flex-wrap: wrap;
   justify-content: center;
-  gap: 10px;
+  gap: 9px;
   margin: 18px auto;
-  max-width: 260px;
+  max-width: 300px;
 }
 .marker {
-  width: 18px;
-  height: 18px;
+  width: 17px;
+  height: 17px;
   border-radius: 50%;
   background: rgba(255, 255, 255, 0.14);
   padding: 0;
+  font-size: 9px;
+  font-weight: 700;
+  color: var(--text-faint);
+  line-height: 17px;
   transition: transform 0.12s ease, background 0.2s ease;
+}
+.marker.is-done {
+  color: #fff;
 }
 .screen--paper .marker {
   background: rgba(20, 30, 48, 0.14);
@@ -712,7 +736,7 @@ textarea {
   background: #fff;
   border: 1px solid var(--u-border);
   border-radius: var(--r-md);
-  padding: 14px 10px;
+  padding: 12px 10px;
   text-align: center;
 }
 .stat__n {
@@ -773,7 +797,7 @@ textarea {
 .sheet-backdrop {
   position: fixed;
   inset: 0;
-  background: rgba(3, 6, 12, 0.6);
+  background: rgba(3, 6, 12, 0.74);
   z-index: 50;
   display: flex;
   align-items: flex-end;
@@ -816,6 +840,12 @@ textarea {
     transform: translateY(12px);
     opacity: 0;
   }
+}
+
+/* light sheet text tones */
+.sheet:not(.sheet--dark) .note,
+.sheet:not(.sheet--dark) .muted {
+  color: var(--u-text-dim);
 }
 
 /* menu list */

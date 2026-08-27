@@ -23,7 +23,7 @@ export function ShareSheet({
   const url = referralUrl(code, resourceUrl);
 
   return (
-    <Sheet open={open} onClose={onClose} title={title} dark>
+    <Sheet open={open} onClose={onClose} title={title}>
       {resourceUrl && (
         <p className="note" style={{ marginBottom: 10 }}>
           Sends the official voter resource first{code ? " · your referral link is included" : ""}.

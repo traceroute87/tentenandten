@@ -1,11 +1,12 @@
-import { useEffect } from "react";
-import { BrowserRouter, Navigate, Route, Routes } from "react-router-dom";
+import { useEffect, useState } from "react";
+import { BrowserRouter, Navigate, Route, Routes, useLocation } from "react-router-dom";
 import { AuthProvider } from "./auth";
 import { ChromeProvider } from "./ui-chrome";
 import { ToastProvider } from "./components/ui";
 import { setReferredBy } from "./store";
 import { track } from "./analytics";
 import Home from "./screens/Home";
+import Landing from "./screens/Landing";
 import Challenge from "./screens/Challenge";
 import Voting from "./screens/Voting";
 import FirstTimeVoter from "./screens/FirstTimeVoter";
@@ -32,6 +33,20 @@ function useEntryCapture() {
   }, []);
 }
 
+/** Desktop browsers get the marketing landing page at "/"; mobile widths and
+    the installed PWA get the app Home. `?app=1` forces the app view. */
+function RootRoute() {
+  const forceApp = new URLSearchParams(useLocation().search).get("app") === "1";
+  const [marketing] = useState(
+    () =>
+      typeof window !== "undefined" &&
+      window.matchMedia("(min-width: 900px)").matches &&
+      !window.matchMedia("(display-mode: standalone)").matches &&
+      !(navigator as { standalone?: boolean }).standalone,
+  );
+  return marketing && !forceApp ? <Landing /> : <Home />;
+}
+
 export default function App() {
   useEntryCapture();
   return (
@@ -40,7 +55,8 @@ export default function App() {
         <ToastProvider>
           <ChromeProvider>
             <Routes>
-              <Route path="/" element={<Home />} />
+              <Route path="/" element={<RootRoute />} />
+              <Route path="/welcome" element={<Landing />} />
               <Route path="/challenge" element={<Navigate to="/challenge/reach" replace />} />
               <Route path="/challenge/:track" element={<Challenge />} />
               <Route path="/voting" element={<Voting />} />

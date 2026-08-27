@@ -8,3 +8,5 @@ dist-ssr
 .DS_Store
 # Local env
 .env.local
+qa/
+/qa_icontest.html

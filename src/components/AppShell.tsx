@@ -59,7 +59,7 @@ export function TopBar({
 
 /* ---------- BottomNav ---------- */
 const TABS = [
-  { to: "/", label: "Home", Icon: IcoHome, end: true },
+  { to: "/?app=1", label: "Home", Icon: IcoHome, end: true },
   { to: "/challenge", label: "Challenge", Icon: IcoTarget, end: false },
   { to: "/voting", label: "Voting", Icon: IcoCheckCircle, end: false },
   { to: "/help", label: "Help", Icon: IcoHeart, end: false },

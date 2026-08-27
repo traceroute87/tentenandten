@@ -15,10 +15,10 @@ export function ChromeProvider({ children }: { children: ReactNode }) {
   return (
     <Ctx.Provider value={{ openMenu: () => setMenu(true), openReminders: () => setReminders(true) }}>
       {children}
-      <Sheet open={menu} onClose={() => setMenu(false)} dark>
+      <Sheet open={menu} onClose={() => setMenu(false)}>
         <MenuSheet onClose={() => setMenu(false)} />
       </Sheet>
-      <Sheet open={reminders} onClose={() => setReminders(false)} title="Election Reminders" dark>
+      <Sheet open={reminders} onClose={() => setReminders(false)} title="Election Reminders">
         <RemindersSheet />
       </Sheet>
     </Ctx.Provider>

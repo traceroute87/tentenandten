@@ -139,12 +139,12 @@ function SignIn({ onSignIn }: { onSignIn: (email: string) => Promise<{ ok: boole
   const [err, setErr] = useState("");
   if (sent)
     return (
-      <div className="install" style={{ marginBottom: 12 }}>
+      <div className="card--paper" style={{ marginBottom: 12 }}>
         Check your email for a sign-in link.
       </div>
     );
   return (
-    <div className="card--paper" style={{ marginBottom: 14, background: "var(--navy-900)", borderColor: "var(--border)", color: "var(--text)" }}>
+    <div className="card--paper" style={{ marginBottom: 14 }}>
       <b style={{ display: "block", marginBottom: 4 }}>Create an account (optional)</b>
       <p className="note" style={{ marginBottom: 10 }}>
         For device sync, reminders, and a verified referral link. Your local

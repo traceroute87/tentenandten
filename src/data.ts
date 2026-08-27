@@ -154,7 +154,7 @@ export const BRING_ACTIONS: ActionDef[] = [
 /* ---------- voting plan checklist ---------- */
 export const VOTING_STEPS: { id: string; label: string; icon: string; source: keyof typeof NATIONAL | "state" }[] = [
   { id: "registration", label: "Check my registration", icon: "search", source: "checkStatus" },
-  { id: "method", label: "Decide how I'll vote", icon: "check", source: "state" },
+  { id: "method", label: "Decide how I'll vote", icon: "edit", source: "state" },
   { id: "polling", label: "Find my polling place", icon: "pin", source: "state" },
   { id: "id", label: "Check ID / what I need", icon: "id", source: "state" },
   { id: "early", label: "Check early voting", icon: "calendar", source: "state" },

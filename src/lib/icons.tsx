@@ -26,15 +26,16 @@ export const IcoChat = (p: P) => (
 );
 export const IcoMail = (p: P) => (
   <svg {...S(p)}>
-    <rect x="3" y="5" width="18" height="14" rx="2" />
-    <path d="m3 7 9 6 9-6" />
+    <rect x="3" y="5" width="18" height="14" rx="2.5" />
+    <path d="M4 8.5 12 13l8-4.5" />
   </svg>
 );
 export const IcoUsers = (p: P) => (
   <svg {...S(p)}>
-    <circle cx="9" cy="8" r="3" />
-    <path d="M3 20c0-3.3 2.7-6 6-6s6 2.7 6 6" />
-    <path d="M16 5.5a3 3 0 0 1 0 5.5M21 20c0-2.6-1.7-4.9-4-5.7" />
+    <circle cx="9" cy="9" r="3.2" />
+    <path d="M3.5 19.5c0-3 2.5-5.2 5.5-5.2s5.5 2.2 5.5 5.2" />
+    <circle cx="17" cy="10.5" r="2.4" />
+    <path d="M15.2 14.5c2.4.2 4.3 2 4.3 4.7" />
   </svg>
 );
 export const IcoHome = (p: P) => (
@@ -107,8 +108,9 @@ export const IcoId = (p: P) => (
 );
 export const IcoBook = (p: P) => (
   <svg {...S(p)}>
-    <path d="M5 4h11a2 2 0 0 1 2 2v13H7a2 2 0 0 0-2 2V4Z" />
-    <path d="M5 19a2 2 0 0 0 2 2h11" />
+    <path d="M4 4.5A1.5 1.5 0 0 1 5.5 3H17a1 1 0 0 1 1 1v13H6a2 2 0 0 0-2 2Z" />
+    <path d="M4 19a2 2 0 0 0 2 2h12v-4" />
+    <path d="M8 7h6M8 10.5h6" />
   </svg>
 );
 export const IcoShare = (p: P) => (

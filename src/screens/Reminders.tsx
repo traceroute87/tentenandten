@@ -57,16 +57,18 @@ export function RemindersSheet() {
         voting, and Election Day. No spam.
       </p>
 
-      <label className="qa__item" style={{ cursor: "pointer" }}>
-        <span className="qa__txt">
-          <b>Show election reminders</b>
-          <span>Timeline alerts inside the app</span>
+      <label className="menu-row" style={{ cursor: "pointer", borderTop: "1px solid var(--u-border)" }}>
+        <span className="menu-row__label">
+          Show election reminders
+          <span style={{ display: "block", fontSize: 12, color: "var(--u-text-dim)", fontWeight: 400 }}>
+            Timeline alerts inside the app
+          </span>
         </span>
         <input
           type="checkbox"
           checked={enabled}
           onChange={(e) => setReminders({ enabled: e.target.checked })}
-          style={{ width: 22, height: 22 }}
+          style={{ width: 22, height: 22, accentColor: "var(--red)" }}
         />
       </label>
 

@@ -6,7 +6,7 @@ import { InstallCard } from "../components/InstallCard";
 import { useChrome } from "../ui-chrome";
 import { useStore, totalActions, nextTrack } from "../store";
 import { ELECTION_DAY } from "../data";
-import hero from "../assets/capitol.jpg";
+import { HeroPicture } from "../components/HeroPicture";
 import { IcoChat, IcoMail, IcoUsers, IcoCheck, IcoChevron, IcoWarn } from "../lib/icons";
 
 const isElectionDay = () => new Date().toISOString().slice(0, 10) === ELECTION_DAY;
@@ -32,7 +32,7 @@ export default function Home() {
     >
       <div className="stack">
         <div className="hero">
-          <img src={hero} alt="" />
+          <HeroPicture className="hero__img" sizes="480px" eager />
         </div>
 
         {isElectionDay() && (
