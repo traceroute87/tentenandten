@@ -1,0 +1,11 @@
+# Minimal Supabase local config. `supabase start` then `supabase db reset`
+# applies migrations/. For a hosted project, run the SQL in migrations/ via
+# the dashboard SQL editor or `supabase db push`.
+project_id = "ten-ten-ten"
+
+[auth]
+enable_signup = true
+# Magic-link only; no passwords in V1.
+[auth.email]
+enable_signup = true
+enable_confirmations = false

@@ -1,0 +1,61 @@
+:root {
+  /* --- brand palette (from reference images) --- */
+  --navy-950: #060912;
+  --navy-900: #0b1220;
+  --navy-850: #0e1728;
+  --navy-800: #111d33;
+  --navy-700: #17263f;
+  --navy-600: #1f3a63;
+
+  --paper: #f5f2ea;
+  --paper-2: #efeadd;
+  --paper-line: rgba(20, 30, 48, 0.12);
+
+  --red: #c1272d;
+  --red-strong: #d92d34;
+  --red-ink: #8f1b20;
+
+  --blue: #3e6da5;
+  --blue-dim: #34557f;
+
+  --olive: #5b6b2f;
+  --olive-bright: #7c9142;
+
+  /* --- semantic: dark surfaces (Home / Challenge chrome / Impact) --- */
+  --bg: var(--navy-900);
+  --bg-elev: var(--navy-800);
+  --bg-elev-2: var(--navy-700);
+  --border: rgba(255, 255, 255, 0.1);
+  --border-strong: rgba(255, 255, 255, 0.16);
+  --text: #f6f7fa;
+  --text-dim: #9aa6b8;
+  --text-faint: #6b7789;
+
+  /* --- semantic: light utility surfaces (Voting / Help / Menu bodies) --- */
+  --u-bg: var(--paper);
+  --u-bg-elev: #ffffff;
+  --u-border: var(--paper-line);
+  --u-text: #16223b;
+  --u-text-dim: #5a6472;
+
+  /* --- type --- */
+  --font-display: "Bebas Neue", "Arial Narrow", system-ui, sans-serif;
+  --font-ui: "Inter", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+
+  /* --- shape --- */
+  --r-sm: 10px;
+  --r-md: 14px;
+  --r-lg: 20px;
+  --r-pill: 999px;
+
+  --shadow-card: 0 1px 2px rgba(0, 0, 0, 0.3), 0 8px 24px rgba(0, 0, 0, 0.28);
+  --shadow-pop: 0 12px 40px rgba(0, 0, 0, 0.45);
+
+  /* --- layout --- */
+  --app-max: 480px;
+  --nav-h: 60px;
+  --safe-top: env(safe-area-inset-top, 0px);
+  --safe-bottom: env(safe-area-inset-bottom, 0px);
+
+  --tap: 44px;
+}
