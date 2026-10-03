@@ -10,15 +10,15 @@ export default defineConfig({
       registerType: "autoUpdate",
       includeAssets: ["favicon.svg", "apple-touch-icon.png"],
       manifest: {
-        name: "10·10·10 — Turn Action Into Turnout",
+        name: "10·10·10",
         short_name: "10·10·10",
         description:
-          "Reach 10. Spread 10. Bring 10. Small actions. Big impact.",
+          "Reach 10. Share 10. Bring 10. Small actions. Big impact.",
         theme_color: "#0b1220",
         background_color: "#0b1220",
         display: "standalone",
         orientation: "portrait",
-        start_url: "/",
+        start_url: "/?app=1",
         scope: "/",
         icons: [
           { src: "/icons/icon-192.png", sizes: "192x192", type: "image/png" },

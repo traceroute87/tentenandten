@@ -1,6 +1,6 @@
 # 10·10·10
 
-**Reach 10. Spread 10. Bring 10.** Small actions. Big impact.
+**Reach 10. Share 10. Bring 10.** Small actions. Big impact.
 
 An installable PWA that does two things: help someone vote, and help them get
 other people voting.
@@ -40,7 +40,9 @@ supabase db push          # hosted project
 ```
 
 Enable **Email** provider in Supabase Auth and set the Site URL / redirect to
-your app origin. `supabase/migrations/0001_init.sql` is the whole schema.
+your app origin. Migrations under `supabase/migrations/` apply in order:
+`0001_init.sql` is the base schema; `0002_voting_plan.sql` adds the synced
+voting method + plan fields.
 
 ## Verified referrals
 

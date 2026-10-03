@@ -1,11 +1,11 @@
-import { useNavigate } from "react-router-dom";
+import { useAppNavigate } from "../lib/navigation";
 import { Screen, TopBar } from "../components/AppShell";
 import { useChrome } from "../ui-chrome";
 import { useStore, setOwnState } from "../store";
 import { STATES, NATIONAL, officeFor } from "../data";
 
 export default function ElectionDay() {
-  const nav = useNavigate();
+  const nav = useAppNavigate();
   const { openMenu } = useChrome();
   const stateCode = useStore((s) => s.profile.state ?? "");
   const office = officeFor(stateCode || undefined);
@@ -27,7 +27,7 @@ export default function ElectionDay() {
         <h1 className="display" style={{ fontSize: 44 }}>Today's the day</h1>
         <p className="muted">Fast help to cast your ballot.</p>
 
-        <select className="select" value={stateCode} onChange={(e) => setOwnState(e.target.value)}>
+        <select className="select" aria-label="Your state" value={stateCode} onChange={(e) => setOwnState(e.target.value)}>
           <option value="">Select your state…</option>
           {STATES.map((s) => (
             <option key={s.code} value={s.code}>{s.name}</option>

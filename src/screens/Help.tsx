@@ -1,31 +1,38 @@
-import { useNavigate } from "react-router-dom";
+import { useState } from "react";
+import { useAppNavigate } from "../lib/navigation";
 import { Screen, TopBar } from "../components/AppShell";
-import { Ico } from "../components/ui";
+import { Button, Ico } from "../components/ui";
 import { useChrome } from "../ui-chrome";
 import { HELP_NEEDS } from "../data";
+import { MessagePresetSheet } from "../components/MessagePresetSheet";
 
 export default function Help() {
-  const nav = useNavigate();
+  const [messagesOpen, setMessagesOpen] = useState(false);
+  const nav = useAppNavigate();
   const { openMenu } = useChrome();
   return (
     <Screen paper header={<TopBar title="Help" onMenu={openMenu} />}>
-      <div className="stack">
+      <div className="stack help-wrap">
         <div>
           <h1 className="h1">Help Someone Vote</h1>
           <p className="eyebrow" style={{ marginTop: 4 }}>What do they need?</p>
         </div>
-        <div className="grid-3">
+        <div className="help-grid">
           {HELP_NEEDS.map((n) => (
-            <button key={n.id} className="need" onClick={() => nav(`/help/${n.id}`)}>
-              <Ico name={n.icon} />
-              {n.label}
+            <button key={n.id} className="help-card" onClick={() => nav(`/help/${n.id}`)}>
+              <span className="help-card__icon">
+                <Ico name={n.icon} />
+              </span>
+              <span className="help-card__label">{n.label}</span>
             </button>
           ))}
         </div>
         <p className="note center">
-          Pick a need, get the official info, then send it to them.
+          Choose what they need. We'll handle the rest.
         </p>
+        <Button block variant="ghost" onClick={() => setMessagesOpen(true)}>Prepare a message</Button>
       </div>
+      <MessagePresetSheet open={messagesOpen} onClose={() => setMessagesOpen(false)} />
     </Screen>
   );
 }

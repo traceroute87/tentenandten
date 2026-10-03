@@ -4,24 +4,49 @@
 import { track } from "../analytics";
 
 export function referralUrl(code?: string, resourceUrl?: string): string {
-  const base = window.location.origin + "/";
+  const base = (import.meta.env.PROD ? "https://tentenandten.com" : window.location.origin) + "/";
   const u = new URL(base);
   if (code) u.searchParams.set("r", code);
   if (resourceUrl) u.searchParams.set("res", resourceUrl);
   return u.toString();
 }
 
+export async function copyText(text: string): Promise<boolean> {
+  try {
+    await navigator.clipboard.writeText(text);
+    return true;
+  } catch {
+    let input: HTMLTextAreaElement | undefined;
+    try {
+      input = document.createElement("textarea");
+      input.value = text;
+      input.setAttribute("readonly", "");
+      input.style.position = "fixed";
+      input.style.opacity = "0";
+      document.body.appendChild(input);
+      input.select();
+      return document.execCommand("copy");
+    } catch {
+      return false;
+    } finally {
+      input?.remove();
+    }
+  }
+}
+
 type ShareArgs = {
   channel: string;
+  title?: string;
   text: string;
   url: string;
+  subject?: string;
   onToast?: (msg: string) => void;
 };
 
-export async function shareVia({ channel, text, url, onToast }: ShareArgs) {
+export async function shareVia({ channel, title, text, url, subject, onToast }: ShareArgs) {
   track("share", { channel });
   const enc = encodeURIComponent;
-  const msg = `${text} ${url}`;
+  const msg = url ? `${text} ${url}` : text;
   switch (channel) {
     case "facebook":
       open(`https://www.facebook.com/sharer/sharer.php?u=${enc(url)}&quote=${enc(text)}`);
@@ -36,31 +61,21 @@ export async function shareVia({ channel, text, url, onToast }: ShareArgs) {
       location.href = `sms:?&body=${enc(msg)}`;
       return;
     case "email":
-      location.href = `mailto:?subject=${enc("A quick way to get ready to vote")}&body=${enc(msg)}`;
+      location.href = `mailto:?subject=${enc(subject ?? "A quick way to get ready to vote")}&body=${enc(msg)}`;
       return;
     case "copy":
-      try {
-        await navigator.clipboard.writeText(msg);
-        onToast?.("Link copied");
-      } catch {
-        onToast?.("Copy failed — long-press the link");
-      }
+      onToast?.(await copyText(msg) ? "Link copied" : "Copy failed");
       return;
     case "share":
     default:
       if (navigator.share) {
         try {
-          await navigator.share({ text, url });
+          await navigator.share({ title: title ?? subject ?? "10·10·10", text, url });
         } catch {
           /* user cancelled */
         }
       } else {
-        try {
-          await navigator.clipboard.writeText(msg);
-          onToast?.("Link copied");
-        } catch {
-          onToast?.("Sharing not supported here");
-        }
+        onToast?.(await copyText(msg) ? "Copied — paste it anywhere." : "Could not copy the message.");
       }
   }
 }

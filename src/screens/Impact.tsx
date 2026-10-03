@@ -6,7 +6,8 @@ import { useChrome } from "../ui-chrome";
 import { useAuth } from "../auth";
 import { supabase } from "../lib/supabase";
 import { useStore, totalActions, trackDone } from "../store";
-import { IcoCheckCircle } from "../lib/icons";
+import { useAppNavigate } from "../lib/navigation";
+import { IcoCheckCircle, IcoCircle } from "../lib/icons";
 
 type Community = {
   participants: number;
@@ -18,12 +19,13 @@ type Community = {
 
 const MILES: { id: "reach" | "spread" | "bring"; label: string }[] = [
   { id: "reach", label: "Reach 10" },
-  { id: "spread", label: "Spread 10" },
+  { id: "spread", label: "Share 10" },
   { id: "bring", label: "Bring 10" },
 ];
 
 export default function Impact() {
   const { openMenu } = useChrome();
+  const nav = useAppNavigate();
   const { session, configured } = useAuth();
   const [share, setShare] = useState(false);
   const [community, setCommunity] = useState<Community | null>(null);
@@ -42,13 +44,17 @@ export default function Impact() {
 
   return (
     <Screen paper header={<TopBar title="Impact" onMenu={openMenu} />}>
-      <div className="stack">
+      <div className="stack impact-wrap">
         <section>
           <div className="section-label">Your Impact</div>
           <div className="stats">
             <div className="stat">
               <div className="stat__n">{total}/30</div>
               <div className="stat__l">Actions completed</div>
+            </div>
+            <div className="stat">
+              <div className="stat__n">{s.challengeHistory.length}</div>
+              <div className="stat__l">Challenges completed</div>
             </div>
             <div className="stat">
               <div className="stat__n">{session ? s.referrals.verified : "—"}</div>
@@ -64,6 +70,7 @@ export default function Impact() {
               Create an account to earn a referral link and track verified referrals.
             </p>
           )}
+          <Button size="sm" variant="ghost" style={{ marginTop: 10 }} onClick={() => nav("/challenge-history")}>View Challenge History</Button>
         </section>
 
         <section className="card--paper">
@@ -74,7 +81,7 @@ export default function Impact() {
             return (
               <div key={m.id} className={`milestone ${done ? "is-complete" : ""}`}>
                 <span className="milestone__ico">
-                  <IcoCheckCircle width={20} height={20} />
+                  {done ? <IcoCheckCircle width={20} height={20} /> : <IcoCircle width={20} height={20} />}
                 </span>
                 <span className="milestone__name">{m.label}</span>
                 <span className="milestone__state">
@@ -85,7 +92,7 @@ export default function Impact() {
           })}
           <div className={`milestone ${allDone ? "is-complete" : ""}`}>
             <span className="milestone__ico">
-              <IcoCheckCircle width={20} height={20} />
+              {allDone ? <IcoCheckCircle width={20} height={20} /> : <IcoCircle width={20} height={20} />}
             </span>
             <span className="milestone__name">10·10·10 Complete</span>
             <span className="milestone__state">{allDone ? "Completed" : `${30 - total} to go`}</span>
@@ -96,23 +103,18 @@ export default function Impact() {
           Share My Progress
         </Button>
 
-        <section className="card--paper">
-          <div className="section-label">10·10·10 Together</div>
-          {community ? (
-            <div className="grid-2" style={{ gap: 12 }}>
+        {/* Community totals are hidden until the backend is connected (§7). */}
+        {community && (
+          <section className="card--paper">
+            <div className="section-label">10·10·10 Together</div>
+            <div className="grid-2 impact-community-grid">
               <Stat n={community.participants} l="Participants" />
               <Stat n={community.actions_completed} l="Actions completed in-app" />
               <Stat n={community.verified_referrals} l="Verified referrals" />
               <Stat n={community.states_represented} l="States represented" />
             </div>
-          ) : (
-            <p className="note">
-              {configured
-                ? "Loading community totals…"
-                : "Community totals appear once the backend is connected. We only show numbers we can verify."}
-            </p>
-          )}
-        </section>
+          </section>
+        )}
       </div>
 
       <ShareSheet

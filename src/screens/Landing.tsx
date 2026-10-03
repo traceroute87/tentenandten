@@ -1,10 +1,11 @@
 import { useEffect, useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { useAppNavigate } from "../lib/navigation";
 import { HeroPicture } from "../components/HeroPicture";
+import { LandingInstallAction } from "../components/InstallCard";
 import { Bar } from "../components/ui";
 import { useStore, totalActions, nextTrack } from "../store";
 import { supabase } from "../lib/supabase";
-import { NATIONAL, LAST_CHECKED } from "../data";
+import { NATIONAL } from "../data";
 import {
   IcoPhone,
   IcoMail,
@@ -15,11 +16,11 @@ import {
   IcoPin,
   IcoHeart,
   IcoStar,
+  IcoX,
   IcoCheckCircle,
   IcoChevron,
-  IcoFacebook,
-  IcoX,
 } from "../lib/icons";
+import { useChrome } from "../ui-chrome";
 
 type Community = {
   participants: number;
@@ -36,9 +37,14 @@ const NAV = [
 ];
 
 export default function Landing() {
-  const nav = useNavigate();
+  const nav = useAppNavigate();
+  const { openReminders } = useChrome();
   const s = useStore((x) => x);
   const total = totalActions(s);
+  const complete = total >= 30;
+  const challengePath = complete ? "/impact" : total > 0
+    ? `/challenge/${nextTrack(s) === "spread" ? "share" : nextTrack(s)}`
+    : "/challenge/reach";
   const [community, setCommunity] = useState<Community | null>(null);
 
   useEffect(() => {
@@ -66,8 +72,9 @@ export default function Landing() {
               </a>
             ))}
           </nav>
-          <button className="lp-btn lp-btn--primary" onClick={go(`/challenge/${nextTrack(s)}`)}>
-            Start the Challenge
+          <LandingInstallAction />
+          <button className="lp-btn lp-btn--primary lp-header__action" onClick={go(challengePath)}>
+            {complete ? "View Your Impact" : "Start the Challenge"}
           </button>
         </div>
       </header>
@@ -88,19 +95,14 @@ export default function Landing() {
             <span className="lp-hero__line">
               10<span className="dot">·</span>People to the polls.
             </span>
-            <span className="turn">Turn action into turnout.</span>
           </h1>
-          <div className="lp-hero__tagline">Reach 10. Spread 10. Bring 10.</div>
-          <p className="lp-hero__sub">
-            Reach 10 people you know. Spread the word 10 times. Help 10 people make
-            a plan and cast their ballot.
-          </p>
+          <div className="lp-hero__turn">Turn action into turnout.</div>
           <div className="lp-hero__cta">
             <button
               className="lp-btn lp-btn--primary lp-btn--lg"
-              onClick={go(total > 0 ? `/challenge/${nextTrack(s)}` : "/challenge/reach")}
+              onClick={go(challengePath)}
             >
-              {total > 0 ? "Continue Challenge" : "Start 10·10·10"}
+              {complete ? "Challenge Complete" : total > 0 ? "Continue Challenge" : "Start 10·10·10"}
             </button>
             <button className="lp-btn lp-btn--ghost lp-btn--lg" onClick={go("/voting")}>
               I need to vote
@@ -120,30 +122,29 @@ export default function Landing() {
         <div className="lp__wrap">
           <div className="lp-sec__eyebrow">The 10·10·10 Challenge</div>
           <h2 className="lp-sec__title">Three simple actions</h2>
-          <p className="lp-sec__lead">Small actions. Big impact.</p>
           <div className="lp-pillars">
             <Pillar
               n={1}
               icon={<IcoPhone />}
               title="Reach 10"
               kicker="Call or text 10 people"
-              body="Call or text 10 people in your immediate circle to make sure they have a plan to vote."
+              body="Call or text 10 people you know and make sure they have a plan to vote."
               onMore={go("/challenge/reach")}
             />
             <Pillar
               n={2}
               icon={<IcoMail />}
-              title="Spread 10"
+              title="Share 10"
               kicker="Emails or social posts"
-              body="Send 10 targeted emails or create 10 social posts that share useful, factual election information."
-              onMore={go("/challenge/spread")}
+              body="Send 10 emails or make 10 posts with useful voting information."
+              onMore={go("/challenge/share")}
             />
             <Pillar
               n={3}
               icon={<IcoUsers />}
               title="Bring 10"
               kicker="People to the polls"
-              body="Help 10 people make a voting plan and actually cast their ballot — register, find a polling place, get a ride."
+              body="Help 10 people make a voting plan and follow through by casting their ballot."
               onMore={go("/challenge/bring")}
             />
           </div>
@@ -159,7 +160,7 @@ export default function Landing() {
             <Tool icon={<IcoBook />} label="Voting Guide" desc="Get yourself ballot-ready." onClick={go("/voting")} />
             <Tool icon={<IcoCheck />} label="Build My Plan" desc="A step-by-step plan to vote." onClick={go("/voting")} />
             <Tool icon={<IcoUsers />} label="Help Someone" desc="Send them what they need." onClick={go("/help")} />
-            <Tool icon={<IcoBell />} label="Reminders" desc="Key dates, no spam." onClick={go("/challenge/reach")} />
+            <Tool icon={<IcoBell />} label="Reminders" desc="Key dates, no spam." onClick={openReminders} />
             <Tool icon={<IcoPin />} label="Election Day" desc="Fast help when it counts." onClick={go("/today")} />
           </div>
         </div>
@@ -177,7 +178,7 @@ export default function Landing() {
             <ResCard s={NATIONAL.checkStatus} desc="Confirm your registration and look up your state's rules." />
             <ResCard s={NATIONAL.eac} desc="Federal guidance on IDs, accessibility, and casting your ballot." />
           </div>
-          <div style={{ textAlign: "center", marginTop: 28 }}>
+          <div className="lp-res__cta" style={{ textAlign: "center", marginTop: 28 }}>
             <button className="lp-btn lp-btn--primary lp-btn--lg" onClick={go("/help")}>
               Find your state's election office
             </button>
@@ -193,7 +194,7 @@ export default function Landing() {
           <p className="lp-sec__lead">
             No inflated counts. We show what we can verify in the app.
           </p>
-          <div className="lp-strip__inner" style={{ padding: "40px 0 20px", margin: 0 }}>
+          <div className="lp-strip__inner" style={{ padding: "32px 0 16px", margin: 0 }}>
             <CStat n={community?.participants} l="Participants" />
             <CStat n={community?.actions_completed} l="Actions completed" />
             <CStat n={community?.verified_referrals} l="Verified referrals" />
@@ -219,17 +220,13 @@ export default function Landing() {
             <IcoStar />
           </span>
           <div>
-            <h3>Keep 10·10·10 strong</h3>
-            <p>
-              10·10·10 is free for everyone. Your support keeps it online, growing,
-              and reaching more voters.
-            </p>
+            <h3>Support 10·10·10</h3>
+            <p>Help cover hosting, development, and maintaining trusted voter resources.</p>
           </div>
           <div className="lp-support__cta">
-            <button className="lp-btn lp-btn--primary lp-btn--lg" onClick={go("/impact")}>
-              <IcoHeart width={16} height={16} /> Support the Mission
+            <button className="lp-btn lp-btn--primary lp-btn--lg" onClick={go("/support")}>
+              <IcoHeart width={16} height={16} /> Support 10·10·10
             </button>
-            <div className="note">Secure. Optional. Appreciated.</div>
           </div>
         </div>
       </section>
@@ -242,16 +239,15 @@ export default function Landing() {
             <a href="#how">How It Works</a>
             <a href="#guide">Voting Guide</a>
             <a href="#resources">Resources</a>
-          </div>
-          <div className="lp-footer__social">
-            <a href="#top" aria-label="Facebook"><IcoFacebook /></a>
-            <a href="#top" aria-label="X"><IcoX /></a>
+            <a href="/trust">Trust / Sources</a>
+            <a className="lp-footer__social" href="https://x.com/1010and10" target="_blank" rel="noopener noreferrer" aria-label="10·10·10 on X (@1010and10)">
+              <IcoX width={16} height={16} /> <span>@1010and10</span>
+            </a>
           </div>
         </div>
         <p className="lp-strip__note" style={{ paddingTop: 0 }}>
           10·10·10 is not a government agency and not the legal authority on voting
           rules. Always confirm details with the official sources linked above.
-          Resources last checked {LAST_CHECKED}.
         </p>
       </footer>
     </div>
@@ -307,7 +303,7 @@ function Tool({
   );
 }
 
-function ResCard({ s, desc }: { s: { name: string; url: string; lastChecked: string }; desc: string }) {
+function ResCard({ s, desc }: { s: { name: string; url: string }; desc: string }) {
   return (
     <a className="lp-res__card" href={s.url} target="_blank" rel="noopener noreferrer">
       <span className="lp-res__flag">
@@ -316,7 +312,6 @@ function ResCard({ s, desc }: { s: { name: string; url: string; lastChecked: str
       <span className="lp-res__name">{s.name}</span>
       <span className="lp-res__desc">{desc}</span>
       <span className="lp-res__link">Open site →</span>
-      <span className="lp-res__checked">Last checked {s.lastChecked}</span>
     </a>
   );
 }

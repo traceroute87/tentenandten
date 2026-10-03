@@ -84,7 +84,7 @@ export const STATE_ELECTION_OFFICE: Record<string, OfficialSource> = {
   ID: S("Idaho Secretary of State — VoteIdaho", "https://voteidaho.gov/"),
   IL: S("Illinois State Board of Elections", "https://www.elections.il.gov/"),
   IN: S("Indiana Secretary of State — Elections", "https://www.in.gov/sos/elections/"),
-  IA: S("Iowa Secretary of State — Elections", "https://sos.iowa.gov/elections/voterinformation/index.html"),
+  IA: S("Iowa Secretary of State — County Auditor Directory", "https://sos.iowa.gov/auditors"),
   KS: S("Kansas Secretary of State — Elections", "https://sos.ks.gov/elections/elections.html"),
   KY: S("Kentucky State Board of Elections", "https://elect.ky.gov/"),
   LA: S("Louisiana Secretary of State — Elections", "https://www.sos.la.gov/ElectionsAndVoting/"),
@@ -148,8 +148,9 @@ export const NATIONAL_VOTING_RESOURCES: Record<VotingResourceType, OfficialSourc
 };
 
 const VERIFIED_DATE = "2026-10-02";
-const direct = (name: string, url: string, validationSource: string): VotingResource => ({ name, url, status: "direct", verifiedDate: VERIFIED_DATE, validationSource });
-const fallback = (name: string, url: string, validationSource: string, verifiedDate = ""): VotingResource => ({ name, url, status: "state-fallback", verifiedDate, validationSource });
+export type VerificationStatus = "verified" | "browser_verified" | "unverified_due_to_access_limit";
+const direct = (name: string, url: string, validationSource: string): VotingResource => ({ name, url, status: "direct", verifiedDate: VERIFIED_DATE, verificationStatus: "verified", validationSource });
+const fallback = (name: string, url: string, validationSource: string, verifiedDate = ""): VotingResource => ({ name, url, status: "state-fallback", verifiedDate, verificationStatus: "verified", validationSource });
 
 /** Only direct state resource URLs verified for that specific function belong here. */
 const CURATED_STATE_RESOURCE_OVERRIDES: Partial<Record<string, Partial<Record<VotingResourceType, OfficialSource>>>> = {
@@ -209,6 +210,7 @@ const CURATED_STATE_RESOURCE_OVERRIDES: Partial<Record<string, Partial<Record<Vo
     electionOffice: direct("South Dakota County Auditor Contact List", "https://vip.sdsos.gov/CountyAuditors.aspx", "https://sdsos.gov/elections-voting/voting/absentee-voting.aspx"),
   },
   SC: {
+    electionDates: direct("South Carolina Election Commission — 2026 General Election Calendar", "https://scvotes.gov/elections-statistics/general-election-calendars/", "https://scvotes.gov/elections-statistics/upcoming-elections/"),
     registration: direct("South Carolina MySCVotes — registration lookup", "https://vrems.scvotes.sc.gov/Voter/Login?PageMode=VoterInformation", "https://scvotes.gov/voters/"),
     earlyVoting: direct("South Carolina Election Commission — 2026 Early Voting", "https://scvotes.gov/voters/early-voting/", "https://scvotes.gov/voters/"),
     absentee: direct("South Carolina Election Commission — Absentee Voting", "https://scvotes.gov/voters/absentee-voting/", "https://scvotes.gov/voters/"),
@@ -216,7 +218,6 @@ const CURATED_STATE_RESOURCE_OVERRIDES: Partial<Record<string, Partial<Record<Vo
     pollingPlace: direct("South Carolina MySCVotes — polling place lookup", "https://vrems.scvotes.sc.gov/Voter/Login?PageMode=PollingPlace", "https://scvotes.gov/voters/"),
     whatToBring: direct("South Carolina Election Commission — Voter ID requirements", "https://scvotes.gov/voters/how-to-vote/", "https://scvotes.gov/voters/"),
     electionOffice: direct("South Carolina County Voter Registration & Election Offices", "https://scvotes.gov/contact/county-voter-registration-election-offices/", "https://scvotes.gov/voters/"),
-    electionDates: fallback("South Carolina Election Commission — Upcoming Elections", "https://scvotes.gov/", "https://scvotes.gov/"),
   },
   TN: {
     registration: direct("Tennessee Voter Registration Lookup", "https://tnmap.tn.gov/voterlookup/", "https://sos.tn.gov/elections"),
@@ -234,7 +235,7 @@ const CURATED_STATE_RESOURCE_OVERRIDES: Partial<Record<string, Partial<Record<Vo
     pollingPlace: direct("VoteTexas — Find Your Polling Place", "https://www.votetexas.gov/voting/where.html", "https://www.votetexas.gov/"),
     whatToBring: direct("VoteTexas — Voter ID", "https://www.votetexas.gov/voting/need-id.html", "https://www.votetexas.gov/"),
     electionOffice: direct("Texas County Voter Registration Officials Directory", "https://www.sos.texas.gov/elections/voter/votregduties.shtml", "https://www.sos.texas.gov/elections/voter/reqvr.shtml"),
-    registration: fallback("Texas Secretary of State — Check registration status through the official voter portal", "https://www.sos.texas.gov/elections/voter/reqvr.shtml", "https://www.votetexas.gov/"),
+    registration: direct("Texas Voter Information Website — Check registration status", "https://goelect.txelections.civixapps.com/ivis-mvp-ui/", "https://www.sos.texas.gov/elections/voter/reqvr.shtml"),
     ballot: fallback("Texas — county-issued sample ballot lookup information", "https://www.sos.texas.gov/elections/laws/2026-november-general-election.shtml", "https://www.sos.texas.gov/elections/laws/2026-november-general-election.shtml"),
   },
   UT: {
@@ -318,13 +319,13 @@ const CURATED_STATE_RESOURCE_OVERRIDES: Partial<Record<string, Partial<Record<Vo
 };
 
 export type ResourceStatus = "direct" | "state-fallback" | "national-fallback";
-export type VotingResource = OfficialSource & { status: ResourceStatus; verifiedDate: string; validationSource: string };
+export type VotingResource = OfficialSource & { status: ResourceStatus; verifiedDate: string; verificationStatus: VerificationStatus; validationSource: string };
 export const RESOURCE_TYPES: VotingResourceType[] = ["electionDates", "registration", "earlyVoting", "absentee", "ballot", "pollingPlace", "whatToBring", "electionOffice"];
 export const STATE_RESOURCES: Record<string, Record<VotingResourceType, VotingResource>> = Object.fromEntries(STATES.map(({ code, name }) => {
   const office = STATE_ELECTION_OFFICE[code];
   return [code, Object.fromEntries(RESOURCE_TYPES.map((type) => [type, {
     name: `${name} official election resource index (fallback)`, url: office.url,
-    status: "state-fallback" as const, verifiedDate: "", validationSource: office.url,
+    status: "state-fallback" as const, verifiedDate: "", verificationStatus: "verified" as const, validationSource: office.url,
   }]))];
 })) as Record<string, Record<VotingResourceType, VotingResource>>;
 const DIRECT_RESOURCES: Partial<Record<string, Partial<Record<VotingResourceType, VotingResource>>>> = {
@@ -338,6 +339,8 @@ const DIRECT_RESOURCES: Partial<Record<string, Partial<Record<VotingResourceType
     whatToBring: direct("Alabama Secretary of State — Voter ID", "https://www.sos.alabama.gov/alabama-votes/voter/voter-id", "https://www.sos.alabama.gov/alabama-votes/voter/election-information"),
   },
   AK: {
+    earlyVoting: direct("Alaska Division of Elections — Absentee and Early Voting", "https://www.elections.alaska.gov/voter-information/absentee-and-early-voting/", "https://www.elections.alaska.gov/"),
+    absentee: direct("Alaska Division of Elections — Absentee and Early Voting", "https://www.elections.alaska.gov/voter-information/absentee-and-early-voting/", "https://www.elections.alaska.gov/"),
     electionDates: direct("Alaska Division of Elections — Election Calendar", "https://www.elections.alaska.gov/calendar/", "https://www.elections.alaska.gov/election-information/"),
     registration: direct("Alaska Division of Elections — My Voter Information", "https://myvoterportal.alaska.gov/", "https://www.elections.alaska.gov/"),
     ballot: direct("Alaska Division of Elections — Sample Ballots", "https://www.elections.alaska.gov/sample-ballots/", "https://www.elections.alaska.gov/"),
@@ -451,6 +454,7 @@ const DIRECT_RESOURCES: Partial<Record<string, Partial<Record<VotingResourceType
     earlyVoting: direct("Iowa Secretary of State — Absentee voting, including in-person early voting", "https://sos.iowa.gov/voters/absentee-voting", "https://sos.iowa.gov/voters"),
     absentee: direct("Iowa Secretary of State — Absentee voting", "https://sos.iowa.gov/voters/absentee-voting", "https://sos.iowa.gov/voters"),
     pollingPlace: direct("Iowa Secretary of State — Find Your Polling Place", "https://apps.sos.iowa.gov/elections/voterreg/pollingplace/search.aspx", "https://sos.iowa.gov/voters"),
+    ballot: fallback("Iowa County Auditor directory — sample ballots are provided by local election authorities", "https://sos.iowa.gov/auditors", "https://sos.iowa.gov/elections-voting"),
     whatToBring: direct("Iowa Secretary of State — Voter ID FAQs", "https://sos.iowa.gov/voters/voter-id-faq", "https://sos.iowa.gov/voters"),
     electionOffice: direct("Iowa County Auditor directory", "https://sos.iowa.gov/auditors", "https://sos.iowa.gov/voters"),
   },
@@ -535,12 +539,12 @@ const DIRECT_RESOURCES: Partial<Record<string, Partial<Record<VotingResourceType
     electionOffice: fallback("Michigan Secretary of State — Voter and local clerk information", "https://www.michigan.gov/sos/elections/voting/voters", "https://www.michigan.gov/sos/elections/voting"),
   },
   MN: {
+    ballot: direct("Minnesota Secretary of State — personalized sample ballot lookup", "https://myballotmn.sos.mn.gov/", "https://www.sos.mn.gov/elections-voting/whats-on-my-ballot/"),
+    pollingPlace: direct("Minnesota Secretary of State — Polling Place Finder", "https://pollfinder.sos.mn.gov/", "https://www.sos.mn.gov/elections-voting/election-day-voting/"),
     electionDates: direct("Minnesota Secretary of State — Elections Calendar", "https://www.sos.mn.gov/election-administration-campaigns/elections-calendar/", "https://www.sos.mn.gov/elections-voting/"),
-    registration: fallback("Minnesota Secretary of State — Check your registration", "https://www.sos.mn.gov/elections-voting/register-to-vote/", "https://www.sos.mn.gov/elections-voting/register-to-vote/"),
+    registration: fallback("Minnesota Secretary of State — Check your registration", "https://www.sos.mn.gov/elections-voting/register-to-vote/check-your-registration/", "https://www.sos.mn.gov/elections-voting/register-to-vote/"),
     earlyVoting: direct("Minnesota Secretary of State — Vote early in person", "https://www.sos.mn.gov/elections-voting/other-ways-to-vote/", "https://www.sos.mn.gov/elections-voting/"),
     absentee: direct("Minnesota Secretary of State — Vote early by mail", "https://www.sos.mn.gov/elections-voting/other-ways-to-vote/vote-early-by-mail/", "https://www.sos.mn.gov/elections-voting/"),
-    ballot: fallback("Minnesota Secretary of State — Sample ballot lookup (official tool linked; lookup service not accessible during verification)", "https://www.sos.mn.gov/elections-voting/whats-on-my-ballot/", "https://www.sos.mn.gov/elections-voting/"),
-    pollingPlace: fallback("Minnesota Secretary of State — Find where you vote (official tool linked; lookup service not accessible during verification)", "https://www.sos.mn.gov/elections-voting/election-day-voting/", "https://www.sos.mn.gov/elections-voting/"),
     whatToBring: direct("Minnesota Secretary of State — Do I need to bring ID?", "https://www.sos.mn.gov/elections-voting/election-day-voting/do-i-need-to-bring-id/", "https://www.sos.mn.gov/elections-voting/"),
     electionOffice: direct("Minnesota County Election Office Directory", "https://www.sos.mn.gov/elections-voting/find-county-election-office/", "https://www.sos.mn.gov/elections-voting/"),
   },
@@ -565,7 +569,7 @@ const DIRECT_RESOURCES: Partial<Record<string, Partial<Record<VotingResourceType
     electionOffice: direct("Mississippi County Election Information", "https://www.sos.ms.gov/elections-voting/county-election-information", "https://www.sos.ms.gov/yall-vote"),
   },
   MT: {
-    electionDates: fallback("Montana Secretary of State — Election and voter resource index", "https://sosmt.gov/elections/", "https://sosmt.gov/elections/"),
+    electionDates: direct("Montana Secretary of State — 2026 Election Calendars", "https://sosmt.gov/elections/calendars/", "https://sosmt.gov/elections/"),
     registration: direct("Montana Voter Information Lookup — registration status", "https://voterportal.mt.gov/WhereToVote.aspx", "https://votemt.gov/"),
     earlyVoting: fallback("Montana Vote Montana — absentee and in-person early voting information", "https://votemt.gov/absentee-ballot/", "https://votemt.gov/"),
     absentee: direct("Montana Vote Montana — Absentee Ballot", "https://votemt.gov/absentee-ballot/", "https://votemt.gov/"),
@@ -713,6 +717,202 @@ const DIRECT_RESOURCES: Partial<Record<string, Partial<Record<VotingResourceType
   },
 };
 for (const [code, resources] of Object.entries(DIRECT_RESOURCES)) Object.assign(STATE_RESOURCES[code], resources);
+
+// Consolidated 2026 source improvements confirmed through current state election authorities.
+const RESOURCE_CLEANUP_OVERRIDES: Partial<Record<string, Partial<Record<VotingResourceType, VotingResource>>>> = {
+  CO: {
+    earlyVoting: fallback("Colorado official voter portal — voting-center information", "https://sos.state.co.us/voter/pages/pub/home.xhtml?_land=sp", "https://www.sos.state.co.us/pubs/elections/lawsRulesResources.html"),
+    absentee: fallback("Colorado official voter portal — mail-ballot information and ballot status", "https://sos.state.co.us/voter/pages/pub/home.xhtml?_land=sp", "https://www.sos.state.co.us/pubs/elections/lawsRulesResources.html"),
+    electionOffice: direct("Colorado County Clerk and Recorder Elections Directory", "https://www.sos.state.co.us/pubs/elections/Resources/files/CountyClerkRosterWebsite.pdf", "https://www.sos.state.co.us/pubs/elections/lawsRulesResources.html"),
+  },
+  AK: {
+    whatToBring: fallback("Alaska Division of Elections — voter ID and voter information", "https://www.elections.alaska.gov/voter-information/", "https://www.elections.alaska.gov/voter-information/"),
+  },
+  AR: {
+    electionOffice: direct("Arkansas County Clerk Directory — local election offices", "https://www.sos.arkansas.gov/uploads/elections/ARCountyClerks.pdf", "https://www.sos.arkansas.gov/elections"),
+  },
+  DC: {
+    whatToBring: fallback("District of Columbia — ID and proof-of-residence requirements for in-person voting", "https://www.dcboe.org/faqs/early-voting-and-election-day", "https://www.dcboe.org/faqs/early-voting-and-election-day"),
+  },
+  ID: {
+    registration: direct("Idaho Voter Registration and Status Lookup", "https://voteidaho.gov/voter-registration/", "https://voteidaho.gov/"),
+  },
+  KY: {
+    earlyVoting: direct("Kentucky GoVote — county early-voting locations", "https://govote.ky.gov/", "https://elect.ky.gov/Voters/Pages/Voting-In-Person-and-By-Mail.aspx"),
+  },
+  WA: {
+    whatToBring: fallback("Washington — vote-by-mail information and ballot return requirements", "https://www.sos.wa.gov/elections/voters/helpful-information/frequently-asked-questions-voting-mail", "https://www.sos.wa.gov/elections"),
+  },
+  AL: {
+    earlyVoting: fallback("Alabama official absentee voting information (no separate statewide early-voting process)", "https://www.sos.alabama.gov/alabama-votes/voter/absentee-voting", "https://www.sos.alabama.gov/alabama-votes"),
+    electionOffice: direct("Alabama County Official Lookup — election offices", "https://www.sos.alabama.gov/city-county-lookup", "https://www.sos.alabama.gov/alabama-votes"),
+  },
+  CT: {
+    registration: direct("Connecticut Voter Registration Lookup", "https://portaldir.ct.gov/sots/LookUp.aspx", "https://portal.ct.gov/sots/election-services/voter-information/voter-registration-information"),
+    pollingPlace: direct("Connecticut Election Polling Place Locator", "https://portaldir.ct.gov/sots/LookUp.aspx", "https://portal.ct.gov/sots/election-services/voter-information/where-and-how-do-i-vote"),
+  },
+  IL: {
+    registration: direct("Illinois Voter Registration Status Lookup", "https://ova.elections.il.gov/RegistrationLookup.aspx", "https://www.elections.il.gov/Main/FAQ.aspx"),
+    earlyVoting: direct("Illinois State Board of Elections — Early Voting Location Search", "https://www.elections.il.gov/VotingAndRegistrationSystems/EarlyVotingLocationsSearch.aspx", "https://www.elections.il.gov/InformationForVoters.aspx"),
+    absentee: direct("Illinois State Board of Elections — Voting By Mail", "https://www.elections.il.gov/electionoperations/VotingByMail.aspx", "https://www.elections.il.gov/InformationForVoters.aspx"),
+    ballot: fallback("Illinois Election Authority Directory — local sample ballots are jurisdiction-specific", "https://www.elections.il.gov/ElectionOperations/ElectionAuthorities.aspx", "https://www.elections.il.gov/InformationForVoters.aspx"),
+    pollingPlace: fallback("Illinois State Board of Elections — registration and polling lookup entry point", "https://www.elections.il.gov/ElectionOperations/ElectionDayVoting.aspx", "https://www.elections.il.gov/InformationForVoters.aspx"),
+    electionOffice: direct("Illinois State Board of Elections — Election Authorities Directory", "https://www.elections.il.gov/ElectionOperations/ElectionAuthorities.aspx", "https://www.elections.il.gov/InformationForVoters.aspx"),
+  },
+  TN: {
+    electionDates: direct("Tennessee Secretary of State — 2026 election calendar", "https://sos.tn.gov/elections/calendar", "https://sos.tn.gov/elections"),
+    absentee: direct("Tennessee Secretary of State — Guide to Absentee Voting", "https://sos.tn.gov/elections/guides/guide-to-absentee-voting", "https://sos.tn.gov/elections"),
+    whatToBring: direct("Tennessee Secretary of State — voter photo ID requirements", "https://sos.tn.gov/elections/faqs/what-id-is-required-when-voting", "https://sos.tn.gov/elections"),
+  },
+  KS: {
+    earlyVoting: direct("Kansas Secretary of State — County Advance Voting Locations", "https://www.sos.ks.gov/elections/advance-voting-locations.html", "https://sos.ks.gov/elections/election-faq.html"),
+    ballot: direct("Kansas Secretary of State — VoterView sample ballot and voter tools", "https://kansasvoterinfo.gov/VoterView", "https://sos.ks.gov/media/press-releases/2026/07-27-26-election-website-for-kansas-voters.html"),
+    electionOffice: direct("Kansas Secretary of State — County Election Offices Directory", "https://sos.ks.gov/elections/county-election-offices.html", "https://sos.ks.gov/elections/elections.html"),
+  },
+  LA: {
+    registration: fallback("Louisiana Secretary of State — Ways to Vote and Voter Portal instructions", "https://www.sos.la.gov/elections-voting/ways-to-vote", "https://www.sos.la.gov/elections-voting/"),
+    earlyVoting: direct("Louisiana Secretary of State — Early Voting and 2026 schedule", "https://www.sos.la.gov/elections-voting/ways-to-vote", "https://www.sos.la.gov/elections-voting/"),
+    absentee: direct("Louisiana Secretary of State — Absentee and Mail Voting", "https://www.sos.la.gov/elections-voting/ways-to-vote", "https://www.sos.la.gov/elections-voting/"),
+    ballot: direct("Louisiana Secretary of State — Sample Ballots", "https://www.sos.la.gov/elections-voting/sample-ballots", "https://www.sos.la.gov/elections-voting/"),
+    pollingPlace: fallback("Louisiana Secretary of State — Polling Locations and Voter Portal lookup", "https://www.sos.la.gov/elections-voting/polling-locations", "https://www.sos.la.gov/elections-voting/"),
+    electionOffice: direct("Louisiana Parish Registrar of Voters Directory", "https://voterportal.sos.la.gov/Registrar", "https://www.sos.la.gov/elections-voting/"),
+  },
+  MI: {
+    registration: direct("Michigan Voter Information Center — registration status", "https://mi.gov/vote", "https://www.michigan.gov/sos/elections"),
+    ballot: direct("Michigan Voter Information Center — personalized sample ballot", "https://mi.gov/vote", "https://www.michigan.gov/sos/elections"),
+    pollingPlace: direct("Michigan Voter Information Center — polling place lookup", "https://mi.gov/vote", "https://www.michigan.gov/sos/elections"),
+    electionOffice: direct("Michigan Voter Information Center — local clerk lookup", "https://mi.gov/vote", "https://www.michigan.gov/sos/elections"),
+  },
+  NM: {
+    registration: direct("New Mexico NMVOTE — voter registration and election information lookup", "https://voterportal.servis.sos.state.nm.us/WhereToVote.aspx", "https://www.nmvote.gov/"),
+    ballot: direct("New Mexico NMVOTE — sample ballot lookup", "https://voterportal.servis.sos.state.nm.us/WhereToVote.aspx", "https://www.nmvote.gov/"),
+    pollingPlace: direct("New Mexico NMVOTE — polling location lookup", "https://voterportal.servis.sos.state.nm.us/WhereToVoteAddress.aspx", "https://www.nmvote.gov/"),
+    electionOffice: direct("New Mexico Secretary of State — County Clerk directory", "https://www.sos.nm.gov/voting-and-elections/county-clerk-information/", "https://www.nmvote.gov/"),
+  },
+  NJ: {
+    registration: direct("New Jersey Voter Information Portal — registration status search", "https://voter.svrs.nj.gov/registration-check", "https://nj.gov/state/elections/assets/pdf/posters-bill-of-rights/2026-06-bill-of-rights-poster-english.pdf"),
+    ballot: fallback("New Jersey County Election Officials Directory — sample ballots are county-issued", "https://www.nj.gov/state/elections/vote-county-election-officials.shtml", "https://www.nj.gov/state/elections/vote-county-election-officials.shtml"),
+    pollingPlace: direct("New Jersey Voter Information Portal — Election Day polling place search", "https://voter.svrs.nj.gov/polling-place-search", "https://www.nj.gov/state/elections/vote-polling-location.shtml"),
+    electionOffice: direct("New Jersey Division of Elections — County Election Officials Directory", "https://www.nj.gov/state/elections/vote-county-election-officials.shtml", "https://www.nj.gov/state/elections/"),
+  },
+  MD: {
+    ballot: direct("Maryland Voter Lookup — personalized sample ballot", "https://voterservices.elections.maryland.gov/VoterSearch", "https://elections.maryland.gov/elections/2026/index.html"),
+  },
+  MA: {
+    ballot: direct("Massachusetts Secretary of the Commonwealth — Personalized 2026 Sample Ballot Lookup", "https://www.sec.state.ma.us/WhereDoIVoteMA/WhereDoIVote", "https://www.sec.state.ma.us/divisions/elections/elesplash.htm"),
+  },
+  MT: {
+    earlyVoting: direct("Montana VoteMT — in-person early and absentee voting", "https://votemt.gov/absentee-ballot/", "https://sosmt.gov/elections/"),
+  },
+  OH: {
+    electionDates: direct("Ohio Secretary of State — 2026 Voting Schedule", "https://www.ohiosos.gov/elections/voting-schedule-text-only", "https://www.ohiosos.gov/elections/voting-schedule"),
+    earlyVoting: direct("Ohio Secretary of State — 2026 Early In-Person Voting Schedule", "https://www.ohiosos.gov/elections/voting-schedule-text-only", "https://www.ohiosos.gov/elections/voting-schedule"),
+    absentee: direct("Ohio Secretary of State — Request an Absentee Ballot", "https://www.ohiosos.gov/elections/request-an-absentee-ballot", "https://www.ohiosos.gov/elections/voting-options"),
+  },
+  NV: {
+    electionDates: direct("Nevada Secretary of State — 2026 Election Information and Dates", "https://www.nvsos.gov/sos/elections/election-information/2026-election-information", "https://www.nvsos.gov/sos/elections/"),
+    earlyVoting: direct("Nevada Secretary of State — 2026 Early Voting Dates", "https://www.nvsos.gov/sos/elections/election-information/2026-election-information", "https://www.nvsos.gov/sos/elections/"),
+  },
+  OR: {
+    electionDates: direct("Oregon Secretary of State — 2026 Upcoming Elections and Deadlines", "https://sos.oregon.gov/elections/pages/current-election.aspx", "https://sos.oregon.gov/elections/Pages/default.aspx"),
+    registration: direct("Oregon My Vote — registration status lookup", "https://secure.sos.state.or.us/orestar/vr/showVoterSearch.do?lang=eng&source=SOS", "https://sos.oregon.gov/elections/pages/current-election.aspx"),
+    ballot: direct("Oregon My Vote — personalized ballot lookup", "https://secure.sos.state.or.us/orestar/vr/showVoterSearch.do?lang=eng&source=SOS", "https://sos.oregon.gov/elections/pages/current-election.aspx"),
+    pollingPlace: fallback("Oregon official drop-box locator — Oregon votes by mail; polling-place lookup is not applicable statewide", "https://sos.oregon.gov/elections/pages/drop-box-locator.aspx", "https://sos.oregon.gov/elections/pages/current-election.aspx"),
+  },
+  RI: {
+    electionDates: direct("Rhode Island Department of State — 2026 Election Calendar", "https://vote.sos.ri.gov/Forms/Elections/Guides/2026ElecCal.pdf", "https://vote.sos.ri.gov/Home"),
+    registration: direct("Rhode Island Voter Information Center — View or update voter record", "https://vote.sos.ri.gov/Home", "https://vote.sos.ri.gov/Home"),
+    earlyVoting: direct("Rhode Island Voter Information Center — Early Voting Information", "https://vote.sos.ri.gov/Home", "https://vote.sos.ri.gov/Home"),
+    absentee: direct("Rhode Island Voter Information Center — Request a Mail Ballot", "https://vote.sos.ri.gov/Home", "https://vote.sos.ri.gov/Home"),
+  },
+  UT: {
+    earlyVoting: direct("Utah Lieutenant Governor — Current Election Information and Early Voting", "https://vote.utah.gov/current-election-information/", "https://vote.utah.gov/"),
+    pollingPlace: direct("Utah Voter Registration Portal — status and polling location lookup", "https://vote.utah.gov/voter-registration-portal/", "https://vote.utah.gov/"),
+  },
+  WV: {
+    electionDates: direct("West Virginia Secretary of State — 2026 General Election Dates and Deadlines", "https://sos.wv.gov/govotewv", "https://sos.wv.gov/elections"),
+    ballot: direct("West Virginia 2026 General Election Sample Ballot Lookup", "https://wv.omniballot.us/sites/54/ballot/app/sb/vr", "https://sos.wv.gov/govotewv"),
+    electionOffice: direct("West Virginia County Clerk Directory", "https://sos.wv.gov/west-virginia-county-clerk-directory", "https://sos.wv.gov/govotewv"),
+  },
+};
+for (const [code, resources] of Object.entries(RESOURCE_CLEANUP_OVERRIDES)) Object.assign(STATE_RESOURCES[code], resources);
+
+// Focused exception review, 2026-10-02. Keep the NM voter portal as the stable
+// official entry point because its linked voter lookup endpoints loop or block access.
+Object.assign(STATE_RESOURCES.NM, {
+  registration: { name: "New Mexico NMVote — registration and election lookup portal", url: "https://www.nmvote.gov/", status: "state-fallback", verifiedDate: "", verificationStatus: "browser_verified", validationSource: "https://www.sos.nm.gov/voting-and-elections/" },
+  ballot: { name: "New Mexico NMVote — sample ballot access portal", url: "https://www.nmvote.gov/", status: "state-fallback", verifiedDate: "", verificationStatus: "browser_verified", validationSource: "https://www.sos.nm.gov/voting-and-elections/" },
+  pollingPlace: { name: "New Mexico NMVote — voting location access portal", url: "https://www.nmvote.gov/", status: "state-fallback", verifiedDate: "", verificationStatus: "browser_verified", validationSource: "https://www.sos.nm.gov/voting-and-elections/" },
+} satisfies Partial<Record<VotingResourceType, VotingResource>>);
+Object.assign(STATE_RESOURCES.FL, {
+  pollingPlace: direct("Florida Division of Elections — Voter Precinct Lookup", "https://dos.fl.gov/elections/for-voters/check-your-voter-status-and-polling-place/voter-precinct-lookup", "https://dos.fl.gov/elections/contacts/supervisor-of-elections"),
+});
+Object.assign(STATE_RESOURCES.RI, {
+  registration: direct("Rhode Island Voter Information Center — View or update voter record", "https://vote.sos.ri.gov/Home/UpdateVoterRecord?ActiveFlag=0", "https://vote.sos.ri.gov/Home"),
+  earlyVoting: direct("Rhode Island — Early voting before Election Day", "https://vote.sos.ri.gov/Voter/PersonVotingPage", "https://vote.sos.ri.gov/Home"),
+  absentee: direct("Rhode Island — Vote from Home with a mail ballot", "https://vote.sos.ri.gov/Voter/VotebyMail", "https://vote.sos.ri.gov/Home"),
+});
+Object.assign(STATE_RESOURCES.OK, {
+  registration: direct("Oklahoma OK Voter Portal — verify registration", "https://okvoterportal.okelections.us/", "https://www.oklahoma.gov/elections/ovp.html"),
+  ballot: direct("Oklahoma OK Voter Portal — sample ballot lookup", "https://okvoterportal.okelections.us/", "https://www.oklahoma.gov/elections/ovp.html"),
+  pollingPlace: direct("Oklahoma OK Voter Portal — polling place lookup", "https://okvoterportal.okelections.us/", "https://www.oklahoma.gov/elections/ovp.html"),
+});
+Object.assign(STATE_RESOURCES.WY, {
+  earlyVoting: direct("Wyoming Secretary of State — in-person absentee voting period", "https://sos.wyo.gov/Elections/State/AbsenteeVoting.aspx", "https://sos.wyo.gov/Elections/Voting.aspx"),
+  whatToBring: direct("Wyoming Secretary of State — voter ID requirements", "https://sos.wyo.gov/Elections/VoterID/", "https://sos.wyo.gov/Elections/Voting.aspx"),
+});
+
+const accessLimitedResources = new Set([
+  "MI:registration", "MI:ballot", "MI:pollingPlace", "MI:electionOffice",
+  "OH:absentee", "OK:registration", "OK:ballot", "OK:pollingPlace", "SD:electionDates", "TN:electionDates", "TN:absentee", "TN:whatToBring",
+  "WI:electionDates", "WI:registration", "WI:earlyVoting", "WI:absentee", "WI:ballot", "WI:pollingPlace", "WI:electionOffice",
+]);
+const browserVerifiedResources = new Set([
+  "AK:registration", "AZ:electionDates", "AZ:registration", "AZ:earlyVoting", "AZ:absentee", "AZ:ballot", "AZ:pollingPlace", "AZ:whatToBring", "AZ:electionOffice",
+  "GA:electionDates", "GA:earlyVoting", "GA:absentee", "GA:whatToBring", "IA:registration", "IA:pollingPlace",
+  "MO:registration", "MO:ballot", "MO:pollingPlace", "MT:electionDates", "MT:pollingPlace", "MT:electionOffice",
+  "NY:electionDates", "NY:registration", "NY:earlyVoting", "NY:absentee", "NY:ballot", "NY:pollingPlace", "NY:whatToBring", "NY:electionOffice",
+  "OH:electionDates", "OH:registration", "OH:earlyVoting", "OH:ballot", "OH:pollingPlace", "OH:whatToBring", "OH:electionOffice",
+  "RI:registration", "RI:earlyVoting", "RI:absentee", "RI:ballot", "RI:pollingPlace", "RI:whatToBring", "RI:electionOffice",
+]);
+for (const [code, resources] of Object.entries(STATE_RESOURCES)) for (const [type, resource] of Object.entries(resources)) {
+  const key = `${code}:${type}`;
+  if (accessLimitedResources.has(key)) {
+    resource.verificationStatus = "unverified_due_to_access_limit";
+    resource.verifiedDate = "";
+  } else if (browserVerifiedResources.has(key) || ["FL:pollingPlace", "WY:earlyVoting", "WY:whatToBring"].includes(key)) {
+    resource.verificationStatus = "browser_verified";
+  }
+}
+
+export type ResourceQuality = "direct" | "directory" | "fallback";
+export type ElectionResourceRecord = {
+  state: string;
+  jurisdiction: string;
+  resourceType: VotingResourceType;
+  label: string;
+  url: string;
+  sourceAuthority: string;
+  lastChecked: string;
+  verificationStatus: VerificationStatus;
+  quality: ResourceQuality;
+};
+
+export const STATE_ELECTION_RESOURCES: ElectionResourceRecord[] = STATES.flatMap(({ code, name }) =>
+  RESOURCE_TYPES.map((resourceType) => {
+    const resource = STATE_RESOURCES[code][resourceType];
+    const quality: ResourceQuality = resource.status === "state-fallback"
+      ? "fallback"
+      : ((resourceType === "electionOffice" && /directory|contact|county|clerk|officials|local board|local clerk lookup/i.test(resource.name)) || /directory/i.test(resource.name) || (resourceType === "earlyVoting" && /county.*locations/i.test(resource.name)))
+        ? "directory"
+        : "direct";
+    return {
+      state: code, jurisdiction: name, resourceType, label: resource.name,
+      url: resource.url, sourceAuthority: resource.validationSource,
+      lastChecked: resource.verifiedDate, verificationStatus: resource.verificationStatus, quality,
+    };
+  }),
+);
 
 export function votingResource(type: VotingResourceType, stateCode?: string): OfficialSource {
   const direct = stateCode ? STATE_RESOURCES[stateCode]?.[type] : undefined;

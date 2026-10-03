@@ -56,6 +56,11 @@ export const IcoCheckCircle = (p: P) => (
     <path d="m8.5 12 2.5 2.5 5-5" />
   </svg>
 );
+export const IcoCircle = (p: P) => (
+  <svg {...S(p)}>
+    <circle cx="12" cy="12" r="9" />
+  </svg>
+);
 export const IcoCheck = (p: P) => (
   <svg {...S(p)}>
     <path d="m5 12 5 5L20 7" />

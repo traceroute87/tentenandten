@@ -21,14 +21,15 @@ const shots = [
   ["landing-fold", "/welcome", ["desktop1280", "desktop1440"], false],
   ["home", "/?app=1", ["iphone", "android", "tablet"], true],
   ["home-fold", "/?app=1", ["iphone"], false],
-  ["challenge-reach", "/challenge/reach", ["iphone"], true],
-  ["challenge-spread", "/challenge/spread", ["iphone"], true],
-  ["challenge-bring", "/challenge/bring", ["iphone"], true],
-  ["voting", "/voting", ["iphone"], true],
+  ["home", "/?app=1", ["desktop1280", "desktop1440"], true],
+  ["challenge-reach", "/challenge/reach", ["iphone", "desktop1280", "desktop1440"], true],
+  ["challenge-share", "/challenge/share", ["iphone", "desktop1280", "desktop1440"], true],
+  ["challenge-bring", "/challenge/bring", ["iphone", "desktop1280", "desktop1440"], true],
+  ["voting", "/voting", ["iphone", "desktop1280"], true],
   ["voting-firsttime", "/voting/first-time", ["iphone"], false],
-  ["help", "/help", ["iphone"], true],
+  ["help", "/help", ["iphone", "desktop1280"], true],
   ["help-detail", "/help/where", ["iphone"], true],
-  ["impact", "/impact", ["iphone"], true],
+  ["impact", "/impact", ["iphone", "desktop1280"], true],
   ["today", "/today", ["iphone"], true],
 ];
 
@@ -68,7 +69,7 @@ for (const [name, path, vps, fullPage] of shots) {
   });
   const page = await ctx.newPage();
   await page.goto(BASE + "/?app=1", { waitUntil: "networkidle" });
-  await page.getByLabel("Menu").click();
+  await page.getByLabel("Menu").last().click(); // last = mobile TopBar (DeskNav one is display:none)
   await page.waitForTimeout(300);
   await page.screenshot({ path: `${OUT}/menu__iphone.png` });
   console.log(`${OUT}/menu__iphone.png`);

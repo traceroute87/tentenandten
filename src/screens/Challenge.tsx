@@ -1,4 +1,6 @@
-import { useNavigate, useParams } from "react-router-dom";
+import { useRef, useState } from "react";
+import { useParams } from "react-router-dom";
+import { useAppNavigate } from "../lib/navigation";
 import { Screen, TopBar } from "../components/AppShell";
 import { Button, MarkerDots, Ico, useToast } from "../components/ui";
 import { useChrome } from "../ui-chrome";
@@ -7,6 +9,7 @@ import {
   completeAction,
   undoLast,
   trackDone,
+  totalActions,
   type TrackId,
 } from "../store";
 import {
@@ -18,130 +21,202 @@ import {
 } from "../data";
 import { referralUrl, shareVia } from "../lib/share";
 import { IcoPhone, IcoMail, IcoUsers } from "../lib/icons";
+import { MessagePresetSheet } from "../components/MessagePresetSheet";
+import { RidePlanSheet } from "../components/RidePlanSheet";
 
 const TRACKS: TrackId[] = ["reach", "spread", "bring"];
 
 const META: Record<TrackId, { glyph: JSX.Element; title: string; desc: string }> = {
   reach: {
     glyph: <IcoPhone />,
-    title: "Reach 10 people you know",
-    desc: "Call or text 10 people in your immediate circle and make sure they have a plan to vote.",
+    title: "Reach 10",
+    desc: "Call or text 10 people you know and make sure they have a plan to vote.",
   },
   spread: {
     glyph: <IcoMail />,
-    title: "Spread the word 10 times",
-    desc: "Send 10 targeted emails or create 10 social posts that share useful election information.",
+    title: "Share 10",
+    desc: "Send 10 emails or make 10 posts with useful voting information.",
   },
   bring: {
     glyph: <IcoUsers />,
     title: "Bring 10 to the polls",
-    desc: "Help 10 people make a voting plan and actually cast their ballot.",
+    desc: "Help 10 people make a voting plan and follow through by casting their ballot.",
   },
 };
+
+/* Share: three intent groups instead of 7 identical buttons (§5) */
+const SPREAD_GROUPS: { label: string; ids: string[] }[] = [
+  { label: "Post / Social", ids: ["facebook", "x", "truth", "share"] },
+  { label: "Direct", ids: ["email", "text"] },
+];
 
 const SHARE_MSG =
   "Make sure you're ready to vote — check your registration, find your polling place, and make a plan.";
 
 export default function Challenge() {
-  const nav = useNavigate();
+  const [messagesOpen, setMessagesOpen] = useState(false);
+  const [ridePlanOpen, setRidePlanOpen] = useState(false);
+  const tabsRef = useRef<(HTMLButtonElement | null)[]>([]);
+  const nav = useAppNavigate();
   const params = useParams();
   const { openMenu } = useChrome();
   const toast = useToast();
-  const active = (TRACKS.includes(params.track as TrackId) ? params.track : "reach") as TrackId;
+  const routeTrack = params.track === "share" ? "spread" : params.track;
+  const active = (TRACKS.includes(routeTrack as TrackId) ? routeTrack : "reach") as TrackId;
 
   const s = useStore((x) => x);
   const st = officeFor(s.profile.state);
   const trk = s.challenge[active];
   const done = trackDone(trk);
   const m = META[active];
+  const activeLabel = active === "spread" ? "Share" : active === "reach" ? "Reach" : "Bring";
+  const total = totalActions(s);
   const referral = referralUrl(s.profile.referralCode, NATIONAL.overview.url);
 
+  function selectTrack(index: number) {
+    const track = TRACKS[index];
+    if (!track) return;
+    tabsRef.current[index]?.focus();
+    nav(`/challenge/${track === "spread" ? "share" : track}`);
+  }
+
+  function onTrackKeyDown(event: React.KeyboardEvent<HTMLButtonElement>, index: number) {
+    let next: number | undefined;
+    if (event.key === "ArrowLeft") next = (index + TRACKS.length - 1) % TRACKS.length;
+    if (event.key === "ArrowRight") next = (index + 1) % TRACKS.length;
+    if (event.key === "Home") next = 0;
+    if (event.key === "End") next = TRACKS.length - 1;
+    if (next !== undefined) {
+      event.preventDefault();
+      selectTrack(next);
+    }
+  }
+
   return (
-    <Screen paper header={<TopBar title="Challenge" onMenu={openMenu} />}>
+    <Screen paper bodyClassName="screen__body--challenge" header={<TopBar title="Challenge" onMenu={openMenu} />}>
       <div className="tabs tabs--paper" role="tablist">
-        {TRACKS.map((t) => (
+        {TRACKS.map((t, index) => (
           <button
             key={t}
+            ref={(element) => { tabsRef.current[index] = element; }}
             role="tab"
             aria-selected={t === active}
+            tabIndex={t === active ? 0 : -1}
             className={`tab ${t === active ? "is-active" : ""}`}
-            onClick={() => nav(`/challenge/${t}`)}
+            onClick={() => selectTrack(index)}
+            onKeyDown={(event) => onTrackKeyDown(event, index)}
           >
-            {t} 10
+            {t === "spread" ? "Share" : t === "reach" ? "Reach" : "Bring"} 10
           </button>
         ))}
       </div>
 
-      <div className="track">
-        <div className="track__badge">{m.glyph}</div>
-        <div className="track__count">{trk.count}/10</div>
-        <div className="track__headline">{m.title}</div>
-        <p className="track__desc">{m.desc}</p>
-
-        <MarkerDots
-          trackId={active}
-          value={trk.count}
-          onUndoLast={() => undoLast(active)}
-        />
-
-        {active === "reach" && (
-          <ReachActions onComplete={() => completeAction("reach", "manual")} done={done} />
-        )}
-
-        {active === "spread" && (
-          <div className="track__actions">
-            <div className="action-grid">
-              {SPREAD_CHANNELS.map((c) => (
-                <button
-                  key={c.id}
-                  className="chip"
-                  onClick={() => {
-                    void shareVia({ channel: c.id, text: SHARE_MSG, url: referral, onToast: toast });
-                    if (!done) completeAction("spread", c.id);
-                  }}
-                >
-                  <Ico name={c.icon} /> {c.label}
-                </button>
-              ))}
+      <div className="challenge-layout">
+        <div className={`track track--${active}`}>
+            <div className="trackhead">
+              <span className="trackhead__icon">{m.glyph}</span>
+              <span className="track__headline">{m.title}</span>
             </div>
-            <Button variant="ghost-dark" block disabled={done} onClick={() => completeAction("spread", "manual")}>
-              Mark One Complete
-            </Button>
-          </div>
-        )}
+            <div className="track__count">{trk.count}/10</div>
+            <p className="track__desc">{m.desc}</p>
 
-        {active === "bring" && (
-          <div className="track__actions">
-            <div className="action-grid">
-              {BRING_ACTIONS.map((a) => {
-                const href =
-                  a.id === "register"
-                    ? NATIONAL.register.url
-                    : a.id === "check"
-                      ? NATIONAL.checkStatus.url
-                      : a.id === "ride"
-                        ? undefined
-                        : st.url;
-                return href ? (
-                  <a key={a.id} className="chip" href={href} target="_blank" rel="noopener noreferrer">
-                    <Ico name={a.icon} /> {a.label}
-                  </a>
-                ) : (
-                  <span key={a.id} className="chip">
-                    <Ico name={a.icon} /> {a.label}
-                  </span>
-                );
-              })}
-            </div>
-            <Button variant="primary" block disabled={done} onClick={() => completeAction("bring", "manual")}>
-              Mark One Complete
-            </Button>
-            <p className="note">Numbered only — 10·10·10 never asks for their name.</p>
-          </div>
-        )}
+            <MarkerDots
+              trackId={active}
+              value={trk.count}
+              onUndoLast={() => undoLast(active)}
+            />
 
-        {done && <div className="track__done">✓ {active} 10 complete. Nice work.</div>}
+            {active === "reach" && (
+              <ReachActions onComplete={() => completeAction("reach", "manual")} done={done} />
+            )}
+
+            {active === "spread" && (
+              <div className="track__actions">
+                {SPREAD_GROUPS.map((g) => (
+                  <div className="chan-group" key={g.label}>
+                    <div className="chan-group__label">{g.label}</div>
+                    <div className="action-grid">
+                      {g.ids.map((id) => {
+                        const c = SPREAD_CHANNELS.find((x) => x.id === id);
+                        if (!c) return null;
+                        return (
+                          <button
+                            key={c.id}
+                            className="chip"
+                            aria-label={c.id === "x" ? "X" : c.label}
+                            onClick={() => {
+                              void shareVia({ channel: c.id, title: "Join my 10·10·10 challenge", text: SHARE_MSG, url: referral, onToast: toast });
+                              if (!done) completeAction("spread", c.id);
+                            }}
+                          >
+                            <Ico name={c.icon} /> {c.id !== "x" && c.label}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+                ))}
+                <Button variant="primary" block disabled={done} onClick={() => completeAction("spread", "manual")}>
+                  Mark One Complete
+                </Button>
+              </div>
+            )}
+
+            {active === "bring" && (
+              <div className="track__actions">
+                <div className="action-grid">
+                  {BRING_ACTIONS.map((a) => {
+                    if (a.id === "ride") {
+                      return (
+                        <button key={a.id} type="button" className="chip" onClick={() => setRidePlanOpen(true)}>
+                          <Ico name={a.icon} /> {a.label}
+                        </button>
+                      );
+                    }
+                    const href =
+                      a.id === "register"
+                        ? NATIONAL.register.url
+                        : a.id === "check"
+                          ? NATIONAL.checkStatus.url
+                          : st.url;
+                    return (
+                      <a key={a.id} className="chip" href={href} target="_blank" rel="noopener noreferrer">
+                        <Ico name={a.icon} /> {a.label}
+                      </a>
+                    );
+                  })}
+                </div>
+                <Button variant="primary" block disabled={done} onClick={() => completeAction("bring", "manual")}>
+                  Mark One Complete
+                </Button>
+                <p className="note">Numbered only — 10·10·10 never asks for their name.</p>
+              </div>
+            )}
+
+            <Button className="challenge-message-preset" variant="ghost" block onClick={() => setMessagesOpen(true)}>
+              Choose a message preset
+            </Button>
+            {done && <div className="track__done">✓ {activeLabel} 10 complete. Nice work.</div>}
+        </div>
+
+        {/* desktop-only: compact utility strip in place of the old right rail */}
+        <div className="challenge-utility">
+          <span>Overall <b>{total}</b>/30</span>
+          <span className="challenge-utility__sep" aria-hidden>·</span>
+          <a href={NATIONAL.overview.url} target="_blank" rel="noopener noreferrer">
+            Useful Resources
+          </a>
+          <span className="challenge-utility__sep" aria-hidden>·</span>
+          <button
+            type="button"
+            onClick={() => void shareVia({ channel: "share", title: "Join my 10·10·10 challenge", text: SHARE_MSG, url: referral, onToast: toast })}
+          >
+            Share Challenge
+          </button>
+        </div>
       </div>
+      <MessagePresetSheet open={messagesOpen} onClose={() => setMessagesOpen(false)} />
+      <RidePlanSheet open={ridePlanOpen} onClose={() => setRidePlanOpen(false)} />
     </Screen>
   );
 }
@@ -164,17 +239,12 @@ function ReachActions({ onComplete, done }: { onComplete: () => void; done: bool
     }
   }
 
+  const already = REACH_ACTIONS.find((a) => a.id === "already")!;
+
   return (
     <div className="track__actions">
-      <div className="action-grid">
-        {REACH_ACTIONS.map((a) => {
-          if (a.id === "already") {
-            return (
-              <button key={a.id} className="chip" disabled={done} onClick={onComplete}>
-                <Ico name={a.icon} /> {a.label}
-              </button>
-            );
-          }
+      <div className="action-grid action-grid--3">
+        {REACH_ACTIONS.filter((a) => a.id !== "already").map((a) => {
           const href =
             a.id === "call" ? "tel:" : a.id === "text" ? "sms:" : "mailto:";
           return (
@@ -184,6 +254,9 @@ function ReachActions({ onComplete, done }: { onComplete: () => void; done: bool
           );
         })}
       </div>
+      <button className="chip chip--block" disabled={done} onClick={onComplete}>
+        <Ico name={already.icon} /> {already.label}
+      </button>
       {hasPicker && (
         <Button variant="solid-navy" block onClick={pick}>
           Choose Contact

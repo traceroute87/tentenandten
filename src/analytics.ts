@@ -25,7 +25,12 @@ function sid(): string {
 
 function readQueue(): Event[] {
   try {
-    return JSON.parse(localStorage.getItem(QUEUE_KEY) || "[]");
+    const queue = JSON.parse(localStorage.getItem(QUEUE_KEY) || "[]") as Event[];
+    return queue.map((e) => {
+      if (e.event !== "referral_visit" || !e.props || !("code" in e.props)) return e;
+      const { code: _code, ...props } = e.props;
+      return { ...e, props };
+    });
   } catch {
     return [];
   }
@@ -54,12 +59,12 @@ export async function flush() {
       }).then((r) => r.ok);
       if (ok) writeQueue([]);
     } else if (backendConfigured && supabase) {
-      const { data } = await supabase.auth.getUser();
-      const rows = q.map((e) => ({ ...e, user_id: data.user?.id ?? null }));
-      const { error } = await supabase.from("analytics_events").insert(rows);
+      const { error } = await supabase.from("analytics_events").insert(q);
       if (!error) writeQueue([]);
     }
     // no backend configured: keep the last CAP events locally, nothing else to do
+  } catch {
+    // Keep the capped queue; the online or next-event handler retries it.
   } finally {
     flushing = false;
   }

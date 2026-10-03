@@ -1,4 +1,4 @@
-import { useNavigate } from "react-router-dom";
+import { useAppNavigate } from "../lib/navigation";
 import { Screen, TopBar } from "../components/AppShell";
 import { ResourceCard } from "../components/ui";
 import { useChrome } from "../ui-chrome";
@@ -45,7 +45,7 @@ const STEPS: { h: string; p: string }[] = [
 ];
 
 export default function FirstTimeVoter() {
-  const nav = useNavigate();
+  const nav = useAppNavigate();
   const { openMenu } = useChrome();
   const state = useStore((s) => s.voting.state ?? s.profile.state ?? "");
   const office = officeFor(state || undefined);

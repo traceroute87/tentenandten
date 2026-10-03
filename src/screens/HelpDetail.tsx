@@ -1,5 +1,6 @@
 import { useState } from "react";
-import { Navigate, useNavigate, useParams } from "react-router-dom";
+import { Navigate, useParams } from "react-router-dom";
+import { useAppNavigate } from "../lib/navigation";
 import { Screen, TopBar } from "../components/AppShell";
 import { Button, ResourceCard } from "../components/ui";
 import { ShareSheet } from "../components/ShareSheet";
@@ -9,7 +10,7 @@ import { HELP_NEEDS, STATES, NATIONAL, officeFor } from "../data";
 
 export default function HelpDetail() {
   const { need: needId } = useParams();
-  const nav = useNavigate();
+  const nav = useAppNavigate();
   const { openMenu } = useChrome();
   const [share, setShare] = useState(false);
   const stateCode = useStore((s) => s.profile.state ?? "");
@@ -54,14 +55,18 @@ export default function HelpDetail() {
         )}
 
         {ready ? (
-          <ResourceCard source={source} />
+          <ResourceCard
+            source={source}
+            secondaryAction={<Button block variant="primary" onClick={() => setShare(true)}>Send This to Them</Button>}
+          />
         ) : (
-          <p className="note">Pick a state to get the official resource.</p>
+          <div className="resource">
+            <p className="note">Pick a state to get the official resource.</p>
+            <div className="resource__secondary">
+              <Button block variant="primary" disabled={!ready} onClick={() => setShare(true)}>Send This to Them</Button>
+            </div>
+          </div>
         )}
-
-        <Button block disabled={!ready} onClick={() => setShare(true)}>
-          Send This to Them
-        </Button>
       </div>
 
       <ShareSheet

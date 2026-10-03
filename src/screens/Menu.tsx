@@ -1,12 +1,14 @@
 import { useEffect, useState } from "react";
+import { useAppNavigate } from "../lib/navigation";
 import QRCode from "qrcode";
 import { Button, useToast } from "../components/ui";
 import { RemindersSheet } from "./Reminders";
 import { useAuth } from "../auth";
 import { useStore, setName, setOwnState } from "../store";
 import { STATES } from "../data";
-import { referralUrl } from "../lib/share";
+import { copyText, referralUrl } from "../lib/share";
 import { track } from "../analytics";
+import { InstallCard, InstallInstructionsList } from "../components/InstallCard";
 import {
   IcoUser,
   IcoQr,
@@ -19,9 +21,10 @@ import {
   IcoChevron,
 } from "../lib/icons";
 
-type View = "root" | "referral" | "reminders" | "privacy" | "support" | "about";
+type View = "root" | "referral" | "reminders" | "privacy" | "about" | "install";
 
 export function MenuSheet({ onClose }: { onClose: () => void }) {
+  const nav = useAppNavigate();
   const [view, setView] = useState<View>("root");
   const { session, configured, signIn, signOut } = useAuth();
   const profile = useStore((s) => s.profile);
@@ -36,7 +39,7 @@ export function MenuSheet({ onClose }: { onClose: () => void }) {
       </>
     );
   if (view === "privacy") return <TextView title="Privacy" onBack={() => setView("root")} body={PRIVACY} />;
-  if (view === "support") return <SupportView onBack={() => setView("root")} />;
+  if (view === "install") return <><SubHeader title="Install 10·10·10" onBack={() => setView("root")} /><InstallInstructionsList /></>;
   if (view === "about") return <TextView title="About 10·10·10" onBack={() => setView("root")} body={ABOUT} />;
 
   return (
@@ -60,12 +63,14 @@ export function MenuSheet({ onClose }: { onClose: () => void }) {
 
         <Row icon={<IcoQr />} label="Referral Link / QR Code" onClick={() => setView("referral")} />
         <Row icon={<IcoBell />} label="Reminders" onClick={() => setView("reminders")} />
+        <InstallCard onInstructions={() => setView("install")} />
 
         <label className="menu-row">
           <span className="menu-row__ico"><IcoPin /></span>
           <span className="menu-row__label">My State</span>
           <select
             className="select"
+            aria-label="My state"
             style={{ width: "auto", minHeight: 36, padding: "6px 8px" }}
             value={profile.state ?? ""}
             onChange={(e) => setOwnState(e.target.value)}
@@ -78,7 +83,8 @@ export function MenuSheet({ onClose }: { onClose: () => void }) {
         </label>
 
         <Row icon={<IcoShield />} label="Privacy" onClick={() => setView("privacy")} />
-        <Row icon={<IcoHeart />} label="Support 10·10·10" onClick={() => setView("support")} />
+        <Row icon={<IcoInfo />} label="Trust / Sources" onClick={() => { onClose(); nav("/trust"); }} />
+        <Row icon={<IcoHeart />} label="Support 10·10·10" onClick={() => { onClose(); nav("/support"); }} />
         <Row icon={<IcoInfo />} label="About 10·10·10" onClick={() => setView("about")} />
 
         {session && (
@@ -120,7 +126,7 @@ function NameRow({ name, onSave }: { name?: string; onSave: (n: string) => void 
   if (editing)
     return (
       <div className="menu-row" style={{ gap: 8 }}>
-        <input className="input" value={v} placeholder="Your name" onChange={(e) => setV(e.target.value)} />
+        <input className="input" aria-label="Your name" value={v} placeholder="Your name" onChange={(e) => setV(e.target.value)} />
         <Button size="sm" onClick={() => { onSave(v.trim()); setEditing(false); }}>Save</Button>
       </div>
     );
@@ -152,6 +158,7 @@ function SignIn({ onSignIn }: { onSignIn: (email: string) => Promise<{ ok: boole
       </p>
       <input
         className="input"
+        aria-label="Email address"
         type="email"
         inputMode="email"
         placeholder="you@example.com"
@@ -204,11 +211,10 @@ function ReferralView({ onBack }: { onBack: () => void }) {
           <Button
             block
             onClick={async () => {
-              try {
-                await navigator.clipboard.writeText(url);
-                toast("Link copied");
+              if (await copyText(url)) {
+                toast("Copied!");
                 track("referral_link_copied");
-              } catch {
+              } else {
                 toast("Copy failed");
               }
             }}
@@ -221,32 +227,6 @@ function ReferralView({ onBack }: { onBack: () => void }) {
           </p>
         </div>
       )}
-    </div>
-  );
-}
-
-function SupportView({ onBack }: { onBack: () => void }) {
-  return (
-    <div>
-      <SubHeader title="Support 10·10·10" onBack={onBack} />
-      <div className="card--paper">
-        <b>10·10·10 is free to use.</b>
-        <p style={{ fontSize: 14, marginTop: 6 }}>
-          Help keep it online. No ads, no paywalls — just the option to chip in if
-          it's useful to you.
-        </p>
-        <a
-          className="btn btn--primary btn--block"
-          style={{ marginTop: 12 }}
-          href="https://opencollective.com/"
-          target="_blank"
-          rel="noopener noreferrer"
-          onClick={() => track("support_clicked")}
-        >
-          Support the Mission
-        </a>
-        <p className="note" style={{ marginTop: 8 }}>Secure. Optional. Appreciated.</p>
-      </div>
     </div>
   );
 }
@@ -265,14 +245,15 @@ function TextView({ title, body, onBack }: { title: string; body: string[]; onBa
 }
 
 const PRIVACY = [
-  "10·10·10 is guest-first. Your challenge progress is stored on your device until you choose to create an account.",
-  "We never upload or store your contacts or address book. The optional contact picker runs entirely on your device.",
-  "If you create an account we store your email (for sign-in), your challenge counts, your state if you set it, and a referral code. That's it.",
-  "Analytics are limited to anonymous funnel events (screen reached, action completed) tied to a random ID — never your name or contacts.",
+  "On this device, 10·10·10 stores your name, current challenge progress, Challenge History, state, reminder settings, voting checklist, voting method, and free-text voting plan.",
+  "With an account, Supabase stores your email, current Reach/Share/Bring progress, completed Challenge History and its optional election context, voting checklist, state, reminder settings, referral code, and referral status. Your voting method and free-text voting-plan details stay on this device.",
+  "Challenge History contains action counts and dates, plus an optional election name/date/jurisdiction. It does not contain candidate selections, party preference, ballot choices, voting location/address, or free-text voting-plan details.",
+  "The optional contact picker reads a contact on your device to open your phone app. Contact details are not saved by 10·10·10 or uploaded.",
+  "Analytics store app events with a browser ID saved on this device (random where supported). They do not include your account ID, referral code, name, email, contacts, or candidate/party choices.",
 ];
 
 const ABOUT = [
-  "10·10·10 helps you vote, and helps you get other people voting. Reach 10. Spread 10. Bring 10.",
+  "10·10·10 helps you vote, and helps you get other people voting. Reach 10. Share 10. Bring 10.",
   "It's an honor-system challenge — you mark your own actions complete.",
   "10·10·10 is not a government agency and not the legal authority on voting rules. Always confirm details with the official federal and state sources we link to.",
   "Version 1.0",

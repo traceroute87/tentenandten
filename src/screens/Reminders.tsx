@@ -1,4 +1,4 @@
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { TIMELINE, STATES, NATIONAL } from "../data";
 import { useStore, setReminders, setOwnState } from "../store";
 import { useAuth } from "../auth";
@@ -38,17 +38,39 @@ export function RemindersSheet() {
   const { session } = useAuth();
   const enabled = useStore((s) => s.reminders.enabled);
   const rstate = useStore((s) => s.reminders.state ?? s.profile.state ?? "");
+  const [loadedUser, setLoadedUser] = useState("");
+  const [prefsError, setPrefsError] = useState("");
 
-  // keep server copy in sync when signed in
+  // Read before saving so a fresh device's defaults don't overwrite the account.
   useEffect(() => {
-    if (!session || !supabase) return;
-    void supabase
-      .from("reminder_prefs")
-      .upsert(
-        { user_id: session.user.id, enabled, state: rstate || null },
-        { onConflict: "user_id" },
-      );
-  }, [session, enabled, rstate]);
+    let active = true;
+    if (!session || !supabase) {
+      setLoadedUser("");
+      return () => { active = false; };
+    }
+    setLoadedUser("");
+    setPrefsError("");
+    void Promise.resolve(supabase.from("reminder_prefs").select("enabled,state")
+      .eq("user_id", session.user.id).maybeSingle()
+      .then(({ data, error }) => {
+        if (!active) return;
+        if (error) throw error;
+        if (data) setReminders({ enabled: data.enabled, state: data.state ?? undefined }, false);
+        setLoadedUser(session.user.id);
+      }))
+      .catch(() => { if (active) setPrefsError("Couldn't load saved reminders. Changes stay on this device until you reopen this screen."); });
+    return () => { active = false; };
+  }, [session?.user.id]);
+
+  useEffect(() => {
+    if (!session || !supabase || loadedUser !== session.user.id) return;
+    let active = true;
+    void Promise.resolve(supabase.from("reminder_prefs")
+      .upsert({ user_id: session.user.id, enabled, state: rstate || null }, { onConflict: "user_id" })
+      .then(({ error }) => { if (active) setPrefsError(error ? "Couldn't save reminder settings yet." : ""); }))
+      .catch(() => { if (active) setPrefsError("Couldn't save reminder settings yet."); });
+    return () => { active = false; };
+  }, [session?.user.id, enabled, rstate, loadedUser]);
 
   return (
     <div className="stack">
@@ -56,6 +78,7 @@ export function RemindersSheet() {
         Get timely nudges as key dates approach — registration deadlines, early
         voting, and Election Day. No spam.
       </p>
+      {prefsError && <p className="note" role="status">{prefsError}</p>}
 
       <label className="menu-row" style={{ cursor: "pointer", borderTop: "1px solid var(--u-border)" }}>
         <span className="menu-row__label">

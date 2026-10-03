@@ -3,9 +3,13 @@ import {
   useCallback,
   useContext,
   useEffect,
+  useRef,
   useState,
+  type CSSProperties,
+  type PointerEvent as ReactPointerEvent,
   type ReactNode,
 } from "react";
+import { createPortal } from "react-dom";
 import * as I from "../lib/icons";
 import type { OfficialSource } from "../data";
 
@@ -90,7 +94,7 @@ export function ProgressRing({
         {value}/{max}
       </div>
       <div className="ring__name">
-        {trackId === "reach" ? "Reach 10" : trackId === "spread" ? "Spread 10" : "Bring 10"}
+        {trackId === "reach" ? "Reach 10" : trackId === "spread" ? "Share 10" : "Bring 10"}
       </div>
     </div>
   );
@@ -142,37 +146,133 @@ export function Sheet({
   open,
   onClose,
   title,
-  dark,
+  closeButton,
   children,
 }: {
   open: boolean;
   onClose: () => void;
   title?: string;
-  dark?: boolean;
+  closeButton?: boolean;
   children: ReactNode;
 }) {
+  const dialogRef = useRef<HTMLDivElement>(null);
+  const dragRef = useRef<{ pointerId: number; startY: number; startedAt: number } | null>(null);
+  const closeRef = useRef(onClose);
+  const [visible, setVisible] = useState(open);
+  const [closing, setClosing] = useState(false);
+  const [dragY, setDragY] = useState(0);
+  const [hasDragged, setHasDragged] = useState(false);
+  closeRef.current = onClose;
+  useEffect(() => {
+    if (open) {
+      setVisible(true);
+      setClosing(false);
+      setDragY(0);
+      return;
+    }
+    if (!visible) return;
+    setClosing(true);
+    const delay = window.matchMedia("(prefers-reduced-motion: reduce)").matches ? 0 : 180;
+    const timer = window.setTimeout(() => setVisible(false), delay);
+    return () => window.clearTimeout(timer);
+  }, [open, visible]);
   useEffect(() => {
     if (!open) return;
-    const onKey = (e: KeyboardEvent) => e.key === "Escape" && onClose();
+    const opener = document.activeElement as HTMLElement | null;
+    const dialog = dialogRef.current;
+    const focusables = () => Array.from(dialog?.querySelectorAll<HTMLElement>(
+      'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])',
+    ) ?? []).filter((el) => el.getClientRects().length > 0);
+    focusables()[0]?.focus();
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") {
+        closeRef.current();
+        return;
+      }
+      if (e.key !== "Tab") return;
+      const items = focusables();
+      const first = items[0];
+      const last = items[items.length - 1];
+      if (!first || !last) {
+        e.preventDefault();
+        dialog?.focus();
+      } else if (e.shiftKey && (document.activeElement === first || !dialog?.contains(document.activeElement))) {
+        e.preventDefault();
+        last.focus();
+      } else if (!e.shiftKey && (document.activeElement === last || !dialog?.contains(document.activeElement))) {
+        e.preventDefault();
+        first.focus();
+      }
+    };
     window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [open, onClose]);
-  if (!open) return null;
-  return (
-    <div className="sheet-backdrop" onClick={onClose}>
+    return () => {
+      window.removeEventListener("keydown", onKey);
+      opener?.focus();
+    };
+  }, [open]);
+  const onDragStart = (event: ReactPointerEvent<HTMLDivElement>) => {
+    if (event.button !== 0) return;
+    setHasDragged(true);
+    dragRef.current = { pointerId: event.pointerId, startY: event.clientY, startedAt: performance.now() };
+    event.currentTarget.setPointerCapture(event.pointerId);
+  };
+  const onDragMove = (event: ReactPointerEvent<HTMLDivElement>) => {
+    if (dragRef.current?.pointerId !== event.pointerId) return;
+    setDragY(Math.max(0, event.clientY - dragRef.current.startY));
+  };
+  const onDragEnd = (event: ReactPointerEvent<HTMLDivElement>) => {
+    const drag = dragRef.current;
+    if (!drag || drag.pointerId !== event.pointerId) return;
+    dragRef.current = null;
+    const distance = Math.max(0, event.clientY - drag.startY);
+    const velocity = distance / Math.max(1, performance.now() - drag.startedAt);
+    if (distance >= 110 || (distance >= 48 && velocity >= 0.65)) onClose();
+    setDragY(0);
+  };
+  const onDragCancel = (event: ReactPointerEvent<HTMLDivElement>) => {
+    if (dragRef.current?.pointerId !== event.pointerId) return;
+    dragRef.current = null;
+    setDragY(0);
+  };
+  if (!visible && !open) return null;
+  return createPortal((
+    <div
+      className={`sheet-backdrop ${closing ? "is-closing" : ""}`}
+      aria-hidden={closing}
+      onClick={closing ? undefined : onClose}
+    >
       <div
-        className={`sheet ${dark ? "sheet--dark" : ""}`}
+        className={`sheet ${hasDragged ? "sheet--interacted" : ""} ${dragY ? "sheet--dragging" : ""}`}
+        ref={dialogRef}
+        style={{ "--sheet-drag-y": `${dragY}px` } as CSSProperties}
         role="dialog"
         aria-modal="true"
-        aria-label={title}
+        aria-label={title ?? "10·10·10 account and app menu"}
+        tabIndex={-1}
         onClick={(e) => e.stopPropagation()}
       >
-        <div className="sheet__grip" />
-        {title && <div className="sheet__title">{title}</div>}
-        {children}
+        <div className="sheet__header">
+          <div
+            className="sheet__drag-handle"
+            aria-label="Drag down to close sheet"
+            onPointerDown={onDragStart}
+            onPointerMove={onDragMove}
+            onPointerUp={onDragEnd}
+            onPointerCancel={onDragCancel}
+          >
+            <div className="sheet__grip" />
+          </div>
+          {(title || closeButton) && (
+            <div className="sheet__heading">
+              {title && <div className="sheet__title">{title}</div>}
+              {closeButton && <button className="sheet__close" type="button" aria-label="Close sheet" onClick={onClose}>×</button>}
+            </div>
+          )}
+        </div>
+        <div className="sheet__content">{children}</div>
       </div>
     </div>
-  );
+  ), document.body);
 }
 
 /* ---------- ResourceCard ---------- */
@@ -180,10 +280,12 @@ export function ResourceCard({
   source,
   onOpen,
   cta = "Open Official Site",
+  secondaryAction,
 }: {
   source: OfficialSource;
   onOpen?: () => void;
   cta?: string;
+  secondaryAction?: ReactNode;
 }) {
   return (
     <div className="resource">
@@ -192,7 +294,6 @@ export function ResourceCard({
       </span>
       <div className="resource__name">{source.name}</div>
       <div className="resource__url">{source.url.replace(/^https?:\/\//, "")}</div>
-      <div className="resource__checked">Last checked {source.lastChecked}</div>
       <a
         className="btn btn--primary btn--block resource__go"
         href={source.url}
@@ -202,6 +303,7 @@ export function ResourceCard({
       >
         {cta}
       </a>
+      {secondaryAction && <div className="resource__secondary">{secondaryAction}</div>}
     </div>
   );
 }
