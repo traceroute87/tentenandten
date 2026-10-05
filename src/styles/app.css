@@ -123,6 +123,17 @@ textarea {
     animation: none;
   }
 }
+/* During a view transition the pseudo-elements animate the route; the live
+   element must not run its own entrance on top of that. */
+:root:active-view-transition .screen__body {
+  animation: none;
+}
+@keyframes dialog-in {
+  from { opacity: 0; transform: scale(0.98); }
+}
+@keyframes dialog-out {
+  to { opacity: 0; transform: scale(0.98); }
+}
 @keyframes route-enter {
   0% { opacity: 0; transform: translateY(24px); }
   82% { opacity: 1; transform: translateY(-2px); }
@@ -1862,6 +1873,11 @@ textarea {
     max-height: min(84vh, calc(100dvh - 48px));
     padding: 0 24px;
     border-radius: 20px;
+    /* centered dialog: subtle fade/scale only, never the mobile slide-up */
+    animation: dialog-in 160ms ease-out both;
+  }
+  .sheet-backdrop.is-closing .sheet {
+    animation: dialog-out 120ms ease-in both;
   }
   .sheet:not(.sheet--wide) > .sheet__content {
     width: calc(100% + 14px);

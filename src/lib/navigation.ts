@@ -7,6 +7,6 @@ export function useAppNavigate() {
   const navigate = useNavigate();
   return (to: To | number, options?: NavigateOptions) => {
     if (typeof to === "number") return navigate(to);
-    return navigate(to, { ...options, viewTransition: supportsViewTransitions });
+    return navigate(to, { ...options, viewTransition: supportsViewTransitions && options?.viewTransition !== false });
   };
 }

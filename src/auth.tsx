@@ -23,7 +23,7 @@ import {
   type RemoteSnapshot,
 } from "./store";
 import { track } from "./analytics";
-import { mergeBeforeWrite, persistProgressAndArchive } from "./lib/sync";
+import { catchUpServerCycle, mergeBeforeWrite, persistProgressAndArchive } from "./lib/sync";
 import { logSyncFailure } from "./lib/sync-diagnostics";
 
 type AuthState = {
@@ -62,39 +62,37 @@ async function pushProgress(userId: string, p: ReturnType<typeof localProgress>,
   const { data: u, error: authError } = await supabase.auth.getUser();
   if (authError) { logSyncFailure("SESSION_CHECK_FAILED", authError); throw authError; }
   if (u.user?.id !== userId || !isCurrent()) throw new Error("Stale account sync");
-  if (p.challenge_cycle > serverCycle) {
-    const { error: archivePreviousError } = await supabase.rpc("archive_completed_challenge").abortSignal(signal);
-    if (archivePreviousError) { logSyncFailure("ARCHIVE_CHALLENGE_FAILED", archivePreviousError); throw archivePreviousError; }
-    if (!isCurrent()) throw new Error("Stale account sync");
-  }
-  await persistProgressAndArchive(p, async () => {
+  const writeRow = async (row: typeof p) => {
     const { error } = await supabase!.from("progress").upsert(
       {
-        user_id: u.user.id,
-        reach: p.reach,
-        spread: p.spread,
-        bring: p.bring,
-        voting_checklist: p.voting_checklist,
-        own_state: p.own_state,
-        challenge_cycle: p.challenge_cycle,
-        challenge_started_at: p.challenge_started_at,
-        challenge_completed_at: p.challenge_completed_at,
-        election_id: p.election_id,
-        election_name: p.election_name,
-        election_date: p.election_date,
-        election_type: p.election_type,
-        jurisdiction: p.jurisdiction,
+        user_id: u.user!.id,
+        reach: row.reach,
+        spread: row.spread,
+        bring: row.bring,
+        voting_checklist: row.voting_checklist,
+        own_state: row.own_state,
+        challenge_cycle: row.challenge_cycle,
+        challenge_started_at: row.challenge_started_at,
+        challenge_completed_at: row.challenge_completed_at,
+        election_id: row.election_id,
+        election_name: row.election_name,
+        election_date: row.election_date,
+        election_type: row.election_type,
+        jurisdiction: row.jurisdiction,
         updated_at: new Date().toISOString(),
       },
       { onConflict: "user_id" },
     ).abortSignal(signal);
     if (error) { logSyncFailure("PUSH_PROGRESS_FAILED", error); throw error; }
     if (!isCurrent()) throw new Error("Stale account sync");
-  }, async () => {
-    const { error: archiveError } = await supabase!.rpc("archive_completed_challenge").abortSignal(signal);
-    if (archiveError) { logSyncFailure("ARCHIVE_CHALLENGE_FAILED", archiveError); throw archiveError; }
+  };
+  const archive = async () => {
+    const { error } = await supabase!.rpc("archive_completed_challenge").abortSignal(signal);
+    if (error) { logSyncFailure("ARCHIVE_CHALLENGE_FAILED", error); throw error; }
     if (!isCurrent()) throw new Error("Stale account sync");
-  });
+  };
+  await catchUpServerCycle(p, serverCycle, getState().challengeHistory, writeRow, archive);
+  await persistProgressAndArchive(p, () => writeRow(p), archive);
   if (p.own_state) {
     if (!isCurrent()) throw new Error("Stale account sync");
     const { error: profileError } = await supabase.from("profiles").update({ state: p.own_state }).eq("id", userId).abortSignal(signal);
@@ -303,7 +301,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         const { error } = await supabase.auth.signInWithOtp({
           email,
           options: {
-            emailRedirectTo: window.location.origin,
+            // Land in the app, not the marketing page at "/".
+            emailRedirectTo: `${window.location.origin}/?app=1`,
             data: ref ? { referred_by_code: ref } : undefined,
           },
         });

@@ -138,12 +138,14 @@ export function Screen({
   children: ReactNode;
 }) {
   const location = useLocation();
+  // No key here: a real page change already mounts a different screen. Keying by
+  // location.key remounted the page (and any sheet inside it) on overlay history entries.
   return (
     <div className={`app ${paper ? "app--paper" : ""}`}>
       <DeskNav />
       <div className={`screen ${paper ? "screen--paper" : ""}`}>
         {header}
-        <div className={`screen__body ${bodyClassName ?? ""}`} key={location.key} data-route-path={location.pathname}>
+        <div className={`screen__body ${bodyClassName ?? ""}`} data-route-path={location.pathname}>
           {children}
         </div>
       </div>
