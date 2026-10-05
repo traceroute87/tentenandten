@@ -137,6 +137,18 @@ await check("Start Challenge: closes once, opens the challenge, keeps the chosen
         const historyBefore = await page.evaluate(() => history.length);
         await page.getByRole("button", { name: "Start the Challenge" }).click();
         await page.locator(".context-picker").click();
+        // Every option label must be readable: on screen, on one or two lines, not squeezed.
+        const options = await page.locator(".context-option span").evaluateAll((spans) => spans.map((span) => {
+          const r = span.getBoundingClientRect();
+          const style = getComputedStyle(span);
+          return { text: span.textContent.trim(), width: r.width, height: r.height, lineHeight: parseFloat(style.lineHeight), opacity: Number(style.opacity), visible: style.visibility === "visible" };
+        }));
+        assert.ok(options.length >= 2, `${where}: only ${options.length} election options`);
+        assert.ok(options.some((o) => o.text === "General turnout challenge") && options.some((o) => o.text === "2026 Federal Midterm General Election"), `${where}: expected options missing`);
+        for (const o of options) {
+          assert.ok(o.text && o.width >= 100 && o.opacity === 1 && o.visible, `${where}: option "${o.text}" not readable (width ${Math.round(o.width)}px)`);
+          assert.ok(o.height <= o.lineHeight * 2.5, `${where}: option "${o.text}" wraps to ${Math.round(o.height / o.lineHeight)} lines`);
+        }
         await page.locator(".context-option", { hasText: label }).click();
         await page.getByRole("button", { name: "Start Challenge", exact: true }).click();
         await page.waitForTimeout(1500);
