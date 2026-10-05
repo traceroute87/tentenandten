@@ -639,7 +639,10 @@ const trustSource = await readFile(new URL("../src/screens/Trust.tsx", import.me
 assert.match(trustSource, /reminder settings/);
 const reminderSource = await readFile(new URL("../src/screens/Reminders.tsx", import.meta.url), "utf8");
 assert.match(reminderSource, /getActiveAccountId\(\) !== session\.user\.id/);
-assert.match(reminderSource, /abortSignal\(controller\.signal\)/);
+// Upsert on the signup-created row needs UPDATE(user_id), which clients lack; closing the
+// dialog must not cancel a save. Stale responses are fenced by the account checks above.
+assert.doesNotMatch(reminderSource, /from\("reminder_prefs"\)\s*\.upsert/);
+assert.doesNotMatch(reminderSource, /abortSignal/);
 const referralUi = await readFile(new URL("../src/screens/Menu.tsx", import.meta.url), "utf8");
 assert.doesNotMatch(referralUi, /verified referral/i);
 

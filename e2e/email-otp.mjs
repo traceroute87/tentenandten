@@ -11,12 +11,21 @@ const USER_ID = "00000000-0000-4000-8000-0000000000e2";
 
 const b64 = (value) => Buffer.from(JSON.stringify(value)).toString("base64url");
 const exp = Math.floor(Date.now() / 1000) + 3600;
-const user = { id: USER_ID, aud: "authenticated", role: "authenticated", email: EMAIL, app_metadata: { provider: "email" }, user_metadata: {}, created_at: new Date().toISOString() };
-const session = {
-  access_token: `${b64({ alg: "HS256", typ: "JWT" })}.${b64({ sub: USER_ID, exp, aud: "authenticated", role: "authenticated", email: EMAIL })}.sig`,
-  token_type: "bearer", expires_in: 3600, expires_at: exp, refresh_token: "refresh-e2e", user,
+const OTHER_EMAIL = "second@example.test";
+const OTHER_ID = "00000000-0000-4000-8000-0000000000e3";
+const account = (email, id) => {
+  const user = { id, aud: "authenticated", role: "authenticated", email, app_metadata: { provider: "email" }, user_metadata: {}, created_at: new Date().toISOString() };
+  return { user, session: {
+    access_token: `${b64({ alg: "HS256", typ: "JWT" })}.${b64({ sub: id, exp, aud: "authenticated", role: "authenticated", email })}.sig`,
+    token_type: "bearer", expires_in: 3600, expires_at: exp, refresh_token: `refresh-${id}`, user,
+  } };
 };
+const ACCOUNTS = { [EMAIL]: account(EMAIL, USER_ID), [OTHER_EMAIL]: account(OTHER_EMAIL, OTHER_ID) };
 const snapshot = { reach: 0, spread: 0, bring: 0, challenge_cycle: 1, challenge_history: [], voting_checklist: {}, own_state: null, referral_code: "ABCDEF", friends_started: 0, referral_starts: 0 };
+const userFromAuth = (req) => {
+  const token = (req.headers().authorization ?? "").replace(/^Bearer /, "");
+  try { return JSON.parse(Buffer.from(token.split(".")[1], "base64url").toString()).sub; } catch { return null; }
+};
 
 const browser = await chromium.launch();
 const failures = [];
@@ -28,24 +37,54 @@ async function check(name, fn) {
 /** Opens the app with Supabase mocked; `calls` records every Supabase request by route. */
 async function setup(viewport = { width: 1280, height: 900 }) {
   const ctx = await browser.newContext({ viewport, isMobile: viewport.width < 900, hasTouch: viewport.width < 900 });
-  const calls = { otp: [], verify: [], user: 0, logout: 0, snapshot: 0, progress: [], other: [] };
+  const calls = { otp: [], verify: [], user: 0, logout: 0, snapshot: 0, progress: [], reminderWrites: [], other: [] };
+  // reminder_prefs mirrors the live table: a row per account created at signup, and
+  // UPDATE granted only on (enabled, state), so an upsert on that row is rejected.
+  const reminderRows = new Map();
+  const failNextReminderWrite = { value: false };
   await ctx.route(/\.supabase\.co\//, async (route) => {
     const req = route.request();
-    const path = new URL(req.url()).pathname;
+    const url = new URL(req.url());
+    const path = url.pathname;
     const json = (status, body) => route.fulfill({ status, contentType: "application/json", body: body === undefined ? "" : JSON.stringify(body) });
     if (path === "/auth/v1/otp") { calls.otp.push(req.postDataJSON()); await new Promise((r) => setTimeout(r, 300)); return json(200, {}); }
     if (path === "/auth/v1/verify") {
       const body = req.postDataJSON();
       calls.verify.push(body);
       await new Promise((r) => setTimeout(r, 300));
-      return body.token === GOOD_CODE && body.email === EMAIL && body.type === "email"
-        ? json(200, session)
-        : json(403, { code: 403, error_code: "otp_expired", msg: "Token has expired or is invalid" });
+      const acct = ACCOUNTS[body.email];
+      if (body.token !== GOOD_CODE || !acct || body.type !== "email") return json(403, { code: 403, error_code: "otp_expired", msg: "Token has expired or is invalid" });
+      if (!reminderRows.has(acct.user.id)) reminderRows.set(acct.user.id, { enabled: false, state: null });
+      return json(200, acct.session);
     }
-    if (path === "/auth/v1/user") { calls.user++; return json(200, user); }
+    if (path === "/auth/v1/user") { calls.user++; const id = userFromAuth(req); return json(200, Object.values(ACCOUNTS).find((a) => a.user.id === id)?.user ?? {}); }
     if (path === "/auth/v1/logout") { calls.logout++; return route.fulfill({ status: 204 }); }
     if (path === "/rest/v1/rpc/app_snapshot") { calls.snapshot++; return json(200, snapshot); }
     if (path === "/rest/v1/progress") { calls.progress.push(req.postDataJSON()); return json(201); }
+    if (path === "/rest/v1/reminder_prefs") {
+      const id = userFromAuth(req);
+      const row = reminderRows.get(id);
+      if (req.method() === "GET") {
+        const single = (req.headers().accept ?? "").includes("vnd.pgrst.object");
+        return single ? (row ? json(200, row) : json(406, { code: "PGRST116" })) : json(200, row ? [row] : []);
+      }
+      calls.reminderWrites.push(`${req.method()} ${JSON.stringify(req.postDataJSON())}`);
+      if (failNextReminderWrite.value) { failNextReminderWrite.value = false; return json(503, { message: "unavailable" }); }
+      if (req.method() === "PATCH") {
+        if (!row) return json(200, []);
+        const body = req.postDataJSON();
+        if ("user_id" in body) return json(403, { code: "42501", message: "permission denied for table reminder_prefs" });
+        reminderRows.set(id, { ...row, ...body });
+        return json(200, [{ user_id: id }]);
+      }
+      if (req.method() === "POST") {
+        if (row && url.searchParams.has("on_conflict")) return json(403, { code: "42501", message: "permission denied for table reminder_prefs" });
+        if (row) return json(409, { code: "23505", message: "duplicate key" });
+        const body = req.postDataJSON();
+        reminderRows.set(id, { enabled: body.enabled, state: body.state ?? null });
+        return json(201);
+      }
+    }
     calls.other.push(`${req.method()} ${path}`);
     return path.startsWith("/rest/v1/rpc/") ? json(200, null) : route.fulfill({ status: 204 });
   });
@@ -59,7 +98,7 @@ async function setup(viewport = { width: 1280, height: 900 }) {
   await page.goto(BASE + "/?app=1", { waitUntil: "networkidle" });
   const openMenu = async () => { await page.getByLabel("Menu").locator("visible=true").first().click(); await page.waitForTimeout(300); };
   await openMenu();
-  return { ctx, page, calls, openMenu };
+  return { ctx, page, calls, openMenu, reminderRows, failNextReminderWrite };
 }
 const sendCode = async (page, email = EMAIL) => {
   await page.getByLabel("Email", { exact: true }).fill(email);
@@ -138,6 +177,111 @@ for (const viewport of [{ width: 1280, height: 900 }, { width: 390, height: 844 
     } finally { await ctx.close(); }
   });
 }
+
+const signIn = async (page, email) => {
+  await sendCode(page, email);
+  await page.getByLabel("Verification code").fill(GOOD_CODE);
+  await page.getByRole("button", { name: "Verify code" }).click();
+  await page.getByText(`Signed in as ${email}`).waitFor();
+  await page.waitForTimeout(800);
+};
+const reminders = (page) => ({
+  async open() { await page.getByLabel("Reminders").locator("visible=true").first().click(); await page.waitForTimeout(500); },
+  async close() {
+    const x = page.getByRole("button", { name: "Close sheet" }).locator("visible=true");
+    if (await x.count()) await x.first().click(); else await page.goBack();
+    await page.waitForTimeout(500);
+  },
+  box: () => page.locator(".sheet input[type=checkbox]"),
+});
+const closeMenu = async (page) => { await page.goBack(); await page.waitForTimeout(400); };
+
+for (const viewport of [{ width: 1280, height: 900 }, { width: 390, height: 844 }]) {
+  await check(`${viewport.width}px signed-in reminders persist through close/reopen and reload; accounts and guest stay separate`, async () => {
+    const { ctx, page, calls, openMenu, reminderRows } = await setup(viewport);
+    const r = reminders(page);
+    try {
+      await signIn(page, EMAIL);
+      await closeMenu(page);
+      await r.open();
+      assert.equal(await r.box().isChecked(), false);
+      await r.box().check();
+      await r.close(); // immediately: closing must not cancel the save
+      await page.waitForTimeout(800);
+      assert.equal(reminderRows.get(USER_ID).enabled, true, `server not saved; writes: ${calls.reminderWrites.join(" | ")}`);
+      await r.open();
+      assert.equal(await r.box().isChecked(), true, "unchecked after close/reopen");
+      await r.close();
+      await page.reload({ waitUntil: "networkidle" });
+      await r.open();
+      assert.equal(await r.box().isChecked(), true, "unchecked after reload");
+      await r.box().uncheck();
+      await r.close();
+      await page.waitForTimeout(800);
+      assert.equal(reminderRows.get(USER_ID).enabled, false, "uncheck not saved");
+      await r.open();
+      assert.equal(await r.box().isChecked(), false, "uncheck lost after reopen");
+      await r.box().check(); // leave account A on
+      await r.close();
+      await page.waitForTimeout(800);
+
+      await openMenu();
+      await page.getByText("Log Out").click();
+      await page.waitForTimeout(600);
+      await r.open();
+      assert.equal(await r.box().isChecked(), false, "guest shows account A's reminder");
+      await r.close();
+
+      await openMenu();
+      await signIn(page, OTHER_EMAIL);
+      await closeMenu(page);
+      await r.open();
+      assert.equal(await r.box().isChecked(), false, "account B shows account A's reminder");
+      assert.equal(reminderRows.get(USER_ID).enabled, true, "account A's server value changed");
+      assert.equal(reminderRows.get(OTHER_ID).enabled, false, "account B's server value changed");
+    } finally { await ctx.close(); }
+  });
+}
+
+await check("guest reminders persist through close/reopen and reload, and unchecking persists", async () => {
+  const { ctx, page } = await setup({ width: 390, height: 844 });
+  const r = reminders(page);
+  try {
+    await closeMenu(page);
+    await r.open();
+    await r.box().check();
+    await r.close();
+    await r.open();
+    assert.equal(await r.box().isChecked(), true, "unchecked after close/reopen");
+    await r.close();
+    await page.reload({ waitUntil: "networkidle" });
+    await r.open();
+    assert.equal(await r.box().isChecked(), true, "unchecked after reload");
+    await r.box().uncheck();
+    await r.close();
+    await page.reload({ waitUntil: "networkidle" });
+    await r.open();
+    assert.equal(await r.box().isChecked(), false, "uncheck lost after reload");
+  } finally { await ctx.close(); }
+});
+
+await check("a failed reminder save keeps the local choice and is retried instead of reverting", async () => {
+  const { ctx, page, reminderRows, failNextReminderWrite } = await setup();
+  const r = reminders(page);
+  try {
+    await signIn(page, EMAIL);
+    await closeMenu(page);
+    await r.open();
+    failNextReminderWrite.value = true;
+    await r.box().check();
+    await page.getByText("Couldn't save reminder settings yet.", { exact: false }).waitFor();
+    await r.close();
+    await r.open();
+    assert.equal(await r.box().isChecked(), true, "stale server value overwrote the unsaved choice");
+    await page.waitForTimeout(800);
+    assert.equal(reminderRows.get(USER_ID).enabled, true, "unsaved choice was not retried on reopen");
+  } finally { await ctx.close(); }
+});
 
 await browser.close();
 if (failures.length) { console.log(`\n${failures.length} email code check(s) failed against ${BASE}`); process.exit(1); }
