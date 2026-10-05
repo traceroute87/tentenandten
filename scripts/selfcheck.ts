@@ -559,7 +559,7 @@ assert.match(homeSource, /if \(total === 0\)[\s\S]*?setNewChallengeOpen\(true\)/
 assert.match(homeSource, /title=\{historyOpen \? "Challenge History" : completed \? "Start a new challenge\?" : "Start a 10·10·10"\}/);
 assert.match(homeSource, /Start Challenge/);
 assert.match(homeSource, /Optional — this only labels the challenge in your Challenge History/);
-assert.match(homeSource, /setChallengeElectionContext\(context\)[\s\S]*?nav\(`\/challenge\/\$\{nextTrack\(s\)\}`\)/);
+assert.match(homeSource, /setChallengeElectionContext\(context\)[\s\S]*?nav\(`\/challenge\/\$\{nextTrack\(s\)\}`, \{ replace: true \}\)/);
 assert.match(homeSource, /startNewChallenge\(context\)/);
 assert.match(homeSource, /\?\? "General turnout challenge"/);
 assert.match(homeSource, /role="radiogroup"/);

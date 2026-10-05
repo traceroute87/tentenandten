@@ -1420,7 +1420,8 @@ textarea {
   min-width: 0;
   max-width: 100%;
 }
-.sheet__content :is(input, select, textarea) {
+/* Radios/checkboxes keep their own size (a full-width radio squeezed option labels to 0px). */
+.sheet__content :is(input:not([type="radio"], [type="checkbox"]), select, textarea) {
   width: 100%;
   max-width: 100%;
   min-width: 0;

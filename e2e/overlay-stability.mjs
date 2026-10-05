@@ -127,6 +127,52 @@ await check("Challenge tabs: switching Reach/Share/Bring does not remount or re-
   }
 });
 
+await check("Start Challenge: closes once, opens the challenge, keeps the chosen context, Back returns Home", async () => {
+  const contexts = [["General turnout challenge", null], ["2026 Federal Midterm General Election", "2026-federal-midterm"]];
+  for (const viewport of [{ width: 1280, height: 900 }, { width: 390, height: 844 }]) {
+    for (const [label, electionId] of contexts) {
+      const { ctx, page } = await openPage(viewport, "/?app=1");
+      try {
+        const where = `${viewport.width}px ${label}`;
+        const historyBefore = await page.evaluate(() => history.length);
+        await page.getByRole("button", { name: "Start the Challenge" }).click();
+        await page.locator(".context-picker").click();
+        // Every option label must be readable: on screen, on one or two lines, not squeezed.
+        const options = await page.locator(".context-option span").evaluateAll((spans) => spans.map((span) => {
+          const r = span.getBoundingClientRect();
+          const style = getComputedStyle(span);
+          return { text: span.textContent.trim(), width: r.width, height: r.height, lineHeight: parseFloat(style.lineHeight), opacity: Number(style.opacity), visible: style.visibility === "visible" };
+        }));
+        assert.ok(options.length >= 2, `${where}: only ${options.length} election options`);
+        assert.ok(options.some((o) => o.text === "General turnout challenge") && options.some((o) => o.text === "2026 Federal Midterm General Election"), `${where}: expected options missing`);
+        for (const o of options) {
+          assert.ok(o.text && o.width >= 100 && o.opacity === 1 && o.visible, `${where}: option "${o.text}" not readable (width ${Math.round(o.width)}px)`);
+          assert.ok(o.height <= o.lineHeight * 2.5, `${where}: option "${o.text}" wraps to ${Math.round(o.height / o.lineHeight)} lines`);
+        }
+        await page.locator(".context-option", { hasText: label }).click();
+        await page.getByRole("button", { name: "Start Challenge", exact: true }).click();
+        await page.waitForTimeout(1500);
+        assert.equal(new URL(page.url()).pathname, "/challenge/reach", `${where}: ended on ${new URL(page.url()).pathname}`);
+        assert.equal(await page.locator(".sheet").count(), 0, `${where}: dialog still open or reopened`);
+        assert.equal(await page.locator(".spinner, [aria-busy=true]").count(), 0, `${where}: loading state left behind`);
+        assert.ok(await page.getByRole("tab", { name: "Reach 10" }).isVisible(), `${where}: challenge page not rendered`);
+        const mounts = await page.evaluate(() => window.__mounts.sheet);
+        assert.equal(mounts, 1, `${where}: dialog mounted ${mounts} times`);
+        const growth = (await page.evaluate(() => history.length)) - historyBefore;
+        assert.ok(growth <= 1, `${where}: history grew by ${growth}`);
+        const stored = await page.evaluate(() => JSON.parse(localStorage.getItem("t10.state.guest")).challengeElection?.electionId ?? null);
+        assert.equal(stored, electionId, `${where}: stored context ${stored}`);
+        await page.goBack();
+        await page.waitForTimeout(500);
+        assert.equal(new URL(page.url()).pathname, "/", `${where}: Back went to ${new URL(page.url()).pathname}`);
+        assert.equal(await page.locator(".sheet").count(), 0, `${where}: Back reopened the dialog`);
+      } finally {
+        await ctx.close();
+      }
+    }
+  }
+});
+
 await check("Menu links close the menu and open their page; Back returns to the previous page", async () => {
   for (const viewport of [{ width: 1280, height: 900 }, { width: 390, height: 844 }]) {
     const { ctx, page } = await openPage(viewport, "/impact");
