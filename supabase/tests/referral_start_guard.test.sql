@@ -17,13 +17,13 @@ update public.profiles set referral_code = 'SELF01' where id = '10000000-0000-00
 select set_config('request.jwt.claim.sub', '10000000-0000-0000-0000-000000000003', true);
 select lives_ok($$select public.link_referral('REFAAA')$$, 'valid referral links');
 select is((select count(*)::integer from public.referrals where referred_user_id = '10000000-0000-0000-0000-000000000003'), 1, 'only one referral row is created');
-select throws_ok($$select public.mark_challenge_started()$$, 'P0001', 'challenge has not started', 'zero progress cannot verify a referral');
-select is((select status from public.referrals where referred_user_id = '10000000-0000-0000-0000-000000000003'), 'account_created', 'zero-progress referral remains unverified');
+select throws_ok($$select public.mark_challenge_started()$$, 'P0001', 'challenge has not started', 'zero progress cannot mark a referral start');
+select is((select status from public.referrals where referred_user_id = '10000000-0000-0000-0000-000000000003'), 'account_created', 'zero-progress referral remains unpromoted');
 select lives_ok($$update public.progress set reach = 1 where user_id = '10000000-0000-0000-0000-000000000003'$$, 'server progress records a started challenge');
-select lives_ok($$select public.mark_challenge_started()$$, 'positive server progress verifies the referral');
-select is((select status from public.referrals where referred_user_id = '10000000-0000-0000-0000-000000000003'), 'challenge_started', 'started referral is verified');
-select lives_ok($$select public.mark_challenge_started()$$, 'repeated verification is safe');
-select is((select count(*)::integer from public.referrals where referred_user_id = '10000000-0000-0000-0000-000000000003'), 1, 'repeated verification does not duplicate rows');
+select lives_ok($$select public.mark_challenge_started()$$, 'positive self-reported progress marks a referral start');
+select is((select status from public.referrals where referred_user_id = '10000000-0000-0000-0000-000000000003'), 'challenge_started', 'started referral has the expected status');
+select lives_ok($$select public.mark_challenge_started()$$, 'repeated start promotion is safe');
+select is((select count(*)::integer from public.referrals where referred_user_id = '10000000-0000-0000-0000-000000000003'), 1, 'repeated promotion does not duplicate rows');
 select lives_ok($$select public.link_referral('REFBBB')$$, 'second attribution attempt is harmless');
 select is((select referrer_user_id::text from public.referrals where referred_user_id = '10000000-0000-0000-0000-000000000003'), '10000000-0000-0000-0000-000000000001', 'first referral attribution is retained');
 

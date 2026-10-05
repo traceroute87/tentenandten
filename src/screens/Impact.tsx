@@ -13,7 +13,7 @@ type Community = {
   participants: number;
   actions_completed: number;
   challenges_completed: number;
-  verified_referrals: number;
+  referral_starts: number;
   states_represented: number;
 };
 
@@ -57,8 +57,8 @@ export default function Impact() {
               <div className="stat__l">Challenges completed</div>
             </div>
             <div className="stat">
-              <div className="stat__n">{session ? s.referrals.verified : "—"}</div>
-              <div className="stat__l">Verified referrals</div>
+              <div className="stat__n">{session ? s.referrals.starts : "—"}</div>
+              <div className="stat__l">Friends who started</div>
             </div>
             <div className="stat">
               <div className="stat__n">{session ? s.referrals.friendsStarted : "—"}</div>
@@ -67,13 +67,12 @@ export default function Impact() {
           </div>
           {!session && configured && (
             <p className="note" style={{ marginTop: 8 }}>
-              Create an account to earn a referral link and track verified referrals.
+              Create an account to get a referral link and see when friends start a challenge.
             </p>
           )}
-          <Button size="sm" variant="ghost" style={{ marginTop: 10 }} onClick={() => nav("/challenge-history")}>View Challenge History</Button>
         </section>
 
-        <section className="card--paper">
+        <section className="card--paper impact-progress-panel">
           <div className="section-label">Challenge Progress</div>
           {MILES.map((m) => {
             const done = trackDone(s.challenge[m.id]);
@@ -99,18 +98,23 @@ export default function Impact() {
           </div>
         </section>
 
-        <Button block onClick={() => setShare(true)}>
-          Share My Progress
-        </Button>
+        <div className="impact-actions">
+          <Button block onClick={() => setShare(true)}>
+            Share My Progress
+          </Button>
+          <Button block size="sm" className="impact-history-btn" onClick={() => nav("/challenge-history")}>
+            View Challenge History
+          </Button>
+        </div>
 
         {/* Community totals are hidden until the backend is connected (§7). */}
         {community && (
-          <section className="card--paper">
+          <section className="card--paper impact-community-panel">
             <div className="section-label">10·10·10 Together</div>
             <div className="grid-2 impact-community-grid">
               <Stat n={community.participants} l="Participants" />
-              <Stat n={community.actions_completed} l="Actions completed in-app" />
-              <Stat n={community.verified_referrals} l="Verified referrals" />
+              <Stat n={community.actions_completed} l="Actions in completed challenges" />
+              <Stat n={community.referral_starts} l="Friends who started" />
               <Stat n={community.states_represented} l="States represented" />
             </div>
           </section>

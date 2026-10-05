@@ -1,14 +1,13 @@
 /* Local-first challenge state. localStorage is the offline source of truth;
    when signed in, auth.tsx mirrors this to Supabase and merges back. */
 import { useSyncExternalStore } from "react";
-import { track } from "./analytics";
-import { mergeProgress } from "./lib/merge";
+import { track } from "./analytics.ts";
+import { mergeProgress } from "./lib/merge.ts";
 import {
   archiveCompletedCycle,
   completionTimestampFromActionLogs,
   historyFromLocal,
   historyFromRemote,
-  historyToRemote,
   mergeChallengeCycles,
   mergeChallengeHistory,
   newChallengeCycle,
@@ -16,7 +15,7 @@ import {
   type ChallengeCycleSnapshot,
   type ChallengeHistoryRecord,
   type ElectionContext,
-} from "./lib/challenge-cycles";
+} from "./lib/challenge-cycles.ts";
 
 export type TrackId = "reach" | "spread" | "bring";
 export type LogEntry = { ts: number; kind: string };
@@ -47,12 +46,17 @@ export type State = {
     plan: { where?: string; datetime?: string; transport?: string; bring?: string };
   };
   reminders: { enabled: boolean; state?: string };
-  referrals: { verified: number; friendsStarted: number }; // from server; 0 for guests
+  referrals: { starts: number; friendsStarted: number }; // aggregate self-reported challenge starts
   flags: { challengeStartedAt?: number; installDismissed?: boolean; stateSetupDismissed?: boolean };
 };
 
-const KEY = "t10.state";
+const GUEST_KEY = "t10.state.guest";
+const LEGACY_KEY = "t10.state";
+const LEGACY_QUARANTINE_KEY = "t10.state.legacy-quarantine";
+const ACCOUNT_PREFIX = "t10.state.account.";
+const GUEST_ADOPTION_KEY = "t10.guest-adopted";
 const GOAL = 10;
+const memoryStates = new Map<string, State>();
 
 const emptyTrack = (): ChallengeTrack => ({ count: 0, log: [] });
 
@@ -69,14 +73,14 @@ function fresh(): State {
     bringRidePlans: {},
     voting: { checklist: {}, plan: {} },
     reminders: { enabled: false },
-    referrals: { verified: 0, friendsStarted: 0 },
+    referrals: { starts: 0, friendsStarted: 0 },
     flags: {},
   };
 }
 
-function load(): State {
+function load(key: string): State {
   try {
-    const raw = localStorage.getItem(KEY);
+    const raw = localStorage.getItem(key);
     if (!raw) return fresh();
     const p = JSON.parse(raw) as Partial<State>;
     if (!p || typeof p !== "object") return fresh();
@@ -126,7 +130,7 @@ function load(): State {
       flags: { ...f.flags, ...p.flags },
     };
     if (completedAt && completedAt !== p.challengeCompletedAt) {
-      try { localStorage.setItem(KEY, JSON.stringify(loaded)); } catch { /* private mode / quota */ }
+      try { localStorage.setItem(key, JSON.stringify(loaded)); } catch { /* private mode / quota */ }
     }
     return loaded;
   } catch {
@@ -134,20 +138,67 @@ function load(): State {
   }
 }
 
-let state: State = load();
+// Legacy state has no trustworthy owner. Preserve it separately and never
+// expose potentially account-synced data in the guest namespace.
+try {
+  if (!localStorage.getItem(LEGACY_QUARANTINE_KEY) && localStorage.getItem(LEGACY_KEY)) {
+    localStorage.setItem(LEGACY_QUARANTINE_KEY, localStorage.getItem(LEGACY_KEY)!);
+    localStorage.removeItem(LEGACY_KEY);
+  }
+} catch { /* storage may be unavailable */ }
+let activeKey = GUEST_KEY;
+let activeAccountId: string | null = null;
+let state: State = load(activeKey);
+memoryStates.set(activeKey, state);
 const listeners = new Set<() => void>();
+
+function saveNamespace(key: string, value: State) {
+  memoryStates.set(key, value);
+  try { localStorage.setItem(key, JSON.stringify(value)); } catch { /* optional persistence */ }
+}
+
+function loadNamespace(key: string): State {
+  return memoryStates.get(key) ?? load(key);
+}
 
 function commit(next: State) {
   state = next;
-  try {
-    localStorage.setItem(KEY, JSON.stringify(next));
-  } catch {
-    /* private mode / quota — in-memory only */
-  }
+  saveNamespace(activeKey, next);
   listeners.forEach((l) => l());
 }
 
 export const getState = () => state;
+export const getActiveAccountId = () => activeAccountId;
+export function activateAccount(userId: string) {
+  if (!userId || activeAccountId === userId) return;
+  saveNamespace(activeKey, state);
+  const key = ACCOUNT_PREFIX + encodeURIComponent(userId);
+  let exists = memoryStates.has(key);
+  try { exists ||= localStorage.getItem(key) !== null; } catch { /* isolated in-memory namespace */ }
+  if (!exists) {
+    let adopted = false;
+    try {
+      if (localStorage.getItem(GUEST_ADOPTION_KEY) !== "1") {
+        saveNamespace(key, JSON.parse(JSON.stringify(loadNamespace(GUEST_KEY))) as State);
+        localStorage.setItem(GUEST_ADOPTION_KEY, "1");
+        adopted = true;
+      }
+    } catch { /* do not adopt an ambiguous namespace without storage */ }
+    if (!adopted) saveNamespace(key, fresh());
+  }
+  activeKey = key;
+  activeAccountId = userId;
+  state = loadNamespace(activeKey);
+  listeners.forEach((l) => l());
+}
+export function activateGuest() {
+  if (activeAccountId === null) return;
+  saveNamespace(activeKey, state);
+  activeAccountId = null;
+  activeKey = GUEST_KEY;
+  state = loadNamespace(activeKey);
+  listeners.forEach((l) => l());
+}
 export const subscribe = (l: () => void) => {
   listeners.add(l);
   return () => listeners.delete(l);
@@ -316,7 +367,7 @@ export type RemoteSnapshot = {
   voting_checklist: Record<string, boolean>;
   referral_code?: string;
   own_state?: string | null;
-  verified_referrals: number;
+  referral_starts: number;
   friends_started: number;
   challenge_cycle?: number;
   challenge_started_at?: string | null;
@@ -380,7 +431,7 @@ export function mergeRemote(r: RemoteSnapshot) {
       state: state.profile.state ?? r.own_state ?? undefined,
     },
     referrals: {
-      verified: r.verified_referrals,
+      starts: r.referral_starts,
       friendsStarted: r.friends_started,
     },
   });
@@ -389,7 +440,6 @@ export function mergeRemote(r: RemoteSnapshot) {
 /** Snapshot to push to the server (progress row upsert). */
 export function localProgress() {
   const election = state.challengeElection;
-  const challengeHistory = state.challengeHistory.map(historyToRemote);
   return {
     reach: state.challenge.reach.count,
     spread: state.challenge.spread.count,
@@ -404,14 +454,5 @@ export function localProgress() {
     election_date: election?.electionDate ?? null,
     election_type: election?.electionType ?? null,
     jurisdiction: election?.jurisdiction ?? null,
-    challenge_history: challengeHistory,
   };
-}
-
-export function clearAccountFields() {
-  commit({
-    ...state,
-    profile: { ...state.profile, referralCode: undefined },
-    referrals: { verified: 0, friendsStarted: 0 },
-  });
 }

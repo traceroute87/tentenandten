@@ -25,7 +25,7 @@ import { useChrome } from "../ui-chrome";
 type Community = {
   participants: number;
   actions_completed: number;
-  verified_referrals: number;
+  referral_starts: number;
   states_represented: number;
 };
 
@@ -192,18 +192,18 @@ export default function Landing() {
           <div className="lp-sec__eyebrow">Our Impact</div>
           <h2 className="lp-sec__title">Truthful numbers only</h2>
           <p className="lp-sec__lead">
-            No inflated counts. We show what we can verify in the app.
+            No inflated counts. Challenge starts are self-reported by participants.
           </p>
           <div className="lp-strip__inner" style={{ padding: "32px 0 16px", margin: 0 }}>
             <CStat n={community?.participants} l="Participants" />
-            <CStat n={community?.actions_completed} l="Actions completed" />
-            <CStat n={community?.verified_referrals} l="Verified referrals" />
+            <CStat n={community?.actions_completed} l="Actions in completed challenges" />
+            <CStat n={community?.referral_starts} l="Friends who started" />
             <CStat n={community?.states_represented} l="States represented" />
           </div>
           <p className="lp-strip__note" style={{ padding: 0, margin: 0 }}>
             {community
               ? "Live community totals, updated from in-app activity."
-              : "Community totals go live at launch. A referral counts only after a friend joins and starts the challenge."}
+              : "Community totals go live at launch. Referral starts are based on a friend's account and self-reported challenge progress."}
           </p>
           <div style={{ textAlign: "center", marginTop: 20 }}>
             <button className="lp-btn lp-btn--ghost" onClick={go("/impact")}>

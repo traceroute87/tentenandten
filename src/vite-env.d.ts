@@ -9,7 +9,6 @@ declare module "*.jpg" {
 interface ImportMetaEnv {
   readonly VITE_SUPABASE_URL?: string;
   readonly VITE_SUPABASE_ANON_KEY?: string;
-  readonly VITE_ANALYTICS_URL?: string;
 }
 interface ImportMeta {
   readonly env: ImportMetaEnv;

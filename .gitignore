@@ -10,3 +10,6 @@ dist-ssr
 .env.local
 qa/
 /qa_icontest.html
+
+# Generated
+*.tsbuildinfo

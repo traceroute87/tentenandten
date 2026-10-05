@@ -1,20 +1,20 @@
 /* Privacy-respecting funnel analytics.
    Small capped local queue for offline delivery only, then flushed to the
    backend. No PII: a random session id, event name, and small props. */
-import { supabase, backendConfigured } from "./lib/supabase";
+import { supabase, backendConfigured } from "./lib/supabase.ts";
+import { validAnalyticsEvent } from "./lib/analytics-schema.ts";
 
 type Event = { session_id: string; event: string; props?: Record<string, unknown>; ts: string };
 
 const QUEUE_KEY = "t10.analytics.queue";
 const SID_KEY = "t10.sid";
 const CAP = 50;
-const ENDPOINT = import.meta.env.VITE_ANALYTICS_URL as string | undefined;
 
 function sid(): string {
   try {
     let v = localStorage.getItem(SID_KEY);
     if (!v) {
-      v = crypto.randomUUID();
+      v = `browser-${crypto.randomUUID()}`;
       localStorage.setItem(SID_KEY, v);
     }
     return v;
@@ -27,6 +27,9 @@ function readQueue(): Event[] {
   try {
     const queue = JSON.parse(localStorage.getItem(QUEUE_KEY) || "[]") as Event[];
     return queue.map((e) => {
+      // Older builds used a bare UUID; keep queued events but detach any
+      // ambiguous identifier from account-shaped UUIDs before sending.
+      if (!/^browser-[0-9a-f-]{36}$/.test(e.session_id) && e.session_id !== "anon") e = { ...e, session_id: "anon" };
       if (e.event !== "referral_visit" || !e.props || !("code" in e.props)) return e;
       const { code: _code, ...props } = e.props;
       return { ...e, props };
@@ -50,17 +53,22 @@ export async function flush() {
   if (q.length === 0) return;
   flushing = true;
   try {
-    if (ENDPOINT) {
-      const ok = await fetch(ENDPOINT, {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify(q),
-        keepalive: true,
-      }).then((r) => r.ok);
-      if (ok) writeQueue([]);
-    } else if (backendConfigured && supabase) {
-      const { error } = await supabase.from("analytics_events").insert(q);
-      if (!error) writeQueue([]);
+    if (backendConfigured && supabase) {
+      const delivered: Event[] = [];
+      for (const event of q) {
+        if (!validAnalyticsEvent(event.event, event.props)) { delivered.push(event); continue; }
+        const { error } = await supabase.rpc("record_analytics_event", {
+          p_session_id: event.session_id,
+          p_event: event.event,
+          p_props: event.props ?? {},
+        });
+        if (error) break;
+        delivered.push(event);
+      }
+      if (delivered.length) {
+        const sent = new Set(delivered.map((event) => `${event.session_id}|${event.ts}|${event.event}`));
+        writeQueue(readQueue().filter((event) => !sent.has(`${event.session_id}|${event.ts}|${event.event}`)));
+      }
     }
     // no backend configured: keep the last CAP events locally, nothing else to do
   } catch {
@@ -71,6 +79,7 @@ export async function flush() {
 }
 
 export function track(event: string, props?: Record<string, unknown>) {
+  if (!validAnalyticsEvent(event, props)) return;
   const e: Event = { session_id: sid(), event, props, ts: new Date().toISOString() };
   writeQueue([...readQueue(), e]);
   void flush();

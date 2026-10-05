@@ -44,7 +44,7 @@ export function MenuSheet({ onClose }: { onClose: () => void }) {
 
   return (
     <div>
-      <div className="brand" style={{ marginBottom: 14 }}>
+      <div className="brand menu-brand">
         <span className="brand__mark">
           10<span className="dot">·</span>10<span className="dot">·</span>10
         </span>
@@ -83,8 +83,8 @@ export function MenuSheet({ onClose }: { onClose: () => void }) {
         </label>
 
         <Row icon={<IcoShield />} label="Privacy" onClick={() => setView("privacy")} />
-        <Row icon={<IcoInfo />} label="Trust / Sources" onClick={() => { onClose(); nav("/trust"); }} />
-        <Row icon={<IcoHeart />} label="Support 10·10·10" onClick={() => { onClose(); nav("/support"); }} />
+        <Row icon={<IcoInfo />} label="Trust / Sources" onClick={() => { onClose(); nav("/trust", { replace: true }); }} />
+        <Row icon={<IcoHeart />} label="Support 10·10·10" onClick={() => { onClose(); nav("/support", { replace: true }); }} />
         <Row icon={<IcoInfo />} label="About 10·10·10" onClick={() => setView("about")} />
 
         {session && (
@@ -150,11 +150,10 @@ function SignIn({ onSignIn }: { onSignIn: (email: string) => Promise<{ ok: boole
       </div>
     );
   return (
-    <div className="card--paper" style={{ marginBottom: 14 }}>
+    <div className="card--paper menu-signin" style={{ marginBottom: 14 }}>
       <b style={{ display: "block", marginBottom: 4 }}>Create an account (optional)</b>
       <p className="note" style={{ marginBottom: 10 }}>
-        For device sync, reminders, and a verified referral link. Your local
-        progress will be merged in.
+        For syncing your challenge across devices and getting a referral link. Current guest progress can be adopted once; each account stays separate.
       </p>
       <input
         className="input"
@@ -199,7 +198,7 @@ function ReferralView({ onBack }: { onBack: () => void }) {
       {!session || !code ? (
         <p className="note">
           Create an account to get your personal referral link, URL, and QR code.
-          Referrals are verified server-side — they can't be faked.
+          Referral starts are based on a friend's account and self-reported challenge progress.
         </p>
       ) : (
         <div className="stack">
@@ -222,8 +221,8 @@ function ReferralView({ onBack }: { onBack: () => void }) {
             Copy My Link
           </Button>
           <p className="note">
-            A referral is verified when a friend opens your link, creates an
-            account, and starts the challenge.
+            A referral start is counted when a friend opens your link, creates an
+            account, and records progress in the honor-system challenge.
           </p>
         </div>
       )}

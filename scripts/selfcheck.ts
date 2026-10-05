@@ -3,12 +3,24 @@
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import { mergeProgress } from "../src/lib/merge.ts";
-import { mergeBeforeWrite } from "../src/lib/sync.ts";
+import { mergeBeforeWrite, persistProgressAndArchive } from "../src/lib/sync.ts";
+import { safeSyncError } from "../src/lib/sync-diagnostics.ts";
 import { archiveCompletedCycle, completionTimestampFromActionLogs, historyFromLocal, historyFromRemote, historyToRemote, mergeChallengeCycles, mergeChallengeHistory, newChallengeCycle, normalizeElectionContext, sortChallengeHistory } from "../src/lib/challenge-cycles.ts";
 import { MESSAGE_PRESETS, renderMessageTemplate } from "../src/data/messagePresets.ts";
 import { ELECTION_TYPE_LABELS, NATIONAL_VOTING_RESOURCES, RESOURCE_TYPES, STATES, STATE_ELECTION_OFFICE, STATE_ELECTION_RESOURCES, STATE_RESOURCES, UPCOMING_ELECTIONS, electionCardData, electionStatus, localCalendarDate, messageResourceType, nextKnownElection, votingResource } from "../src/data.ts";
 import { allDayDateRange, calendarActions, calendarPlatform, electionCalendar, electionDescription, googleCalendarUrl } from "../src/lib/calendar.ts";
 import { installMode, isIOSSafari, IOS_INSTALL_STEPS, requestNativeInstall } from "../src/lib/install.ts";
+import { validAnalyticsEvent } from "../src/lib/analytics-schema.ts";
+import { sheetStack, stateWithSheetStack } from "../src/lib/sheet-history.ts";
+
+// Sheets add same-route history entries and unwind only the top nested sheet.
+const routeState = { returnTo: "impact" };
+const menuSheetState = stateWithSheetStack(routeState, ["menu"]);
+const nestedSheetState = stateWithSheetStack(menuSheetState, ["menu", "presets"]);
+assert.deepEqual(sheetStack(nestedSheetState), ["menu", "presets"]);
+assert.deepEqual(sheetStack(menuSheetState), ["menu"]); // Back first restores the underlying sheet
+assert.deepEqual(stateWithSheetStack(menuSheetState, []), routeState); // closing removes only overlay metadata
+assert.equal(sheetStack(null).length, 0);
 
 // Challenge cycles archive once, keep context, and reject stale-device counter resurrection.
 const completedCycle = {
@@ -90,6 +102,44 @@ await mergeBeforeWrite(
 );
 assert.deepEqual(order, ["fetch", "merge", "write"]);
 
+// A completed local cycle remains intact if the account write fails against an older snapshot.
+let retainedComplete = { challengeCycle: 1, startedAt: null, completedAt: "2026-10-02T14:09:00.000Z", electionContext: null, reach: 10, spread: 10, bring: 10 };
+await assert.rejects(mergeBeforeWrite(
+  async () => ({ challengeCycle: 1, startedAt: null, completedAt: null, electionContext: null, reach: 9, spread: 0, bring: 0 }),
+  (remote) => { retainedComplete = mergeChallengeCycles(retainedComplete, remote); },
+  async () => { throw new Error("mock progress write failure"); },
+));
+assert.deepEqual([retainedComplete.reach, retainedComplete.spread, retainedComplete.bring], [10, 10, 10]);
+
+// A complete cycle is archived only after its progress write succeeds; archive failure is retryable.
+const syncOrder: string[] = [];
+await assert.rejects(persistProgressAndArchive(retainedComplete, async () => {
+  syncOrder.push("progress");
+}, async () => {
+  syncOrder.push("archive");
+  throw new Error("mock archive failure");
+}));
+assert.deepEqual(syncOrder, ["progress", "archive"]);
+assert.deepEqual([retainedComplete.reach, retainedComplete.spread, retainedComplete.bring], [10, 10, 10]);
+const completedSyncOrder: string[] = [];
+let serverHistory: ReturnType<typeof historyToRemote>[] = [];
+await persistProgressAndArchive(retainedComplete, async () => { completedSyncOrder.push("progress-write"); }, async () => {
+  completedSyncOrder.push("archive-rpc");
+  serverHistory = [historyToRemote(onceArchived[0])];
+});
+const reloadedHistory = mergeChallengeHistory([], historyFromRemote(serverHistory));
+assert.deepEqual(completedSyncOrder, ["progress-write", "archive-rpc"]);
+assert.equal(reloadedHistory.length, 1); // archive appears in app_snapshot and survives merge
+assert.equal(reloadedHistory[0].completedAt, completedCycle.completedAt);
+
+// Diagnostics include the requested fields but redact identity-like values.
+const diagnostic = safeSyncError({ code: "42501", message: "permission denied for user@example.com", details: "referrer 12345678-1234-1234-1234-123456789abc", hint: "QWERTY", status: 403 });
+assert.equal(diagnostic.code, "42501");
+assert.equal(diagnostic.status, 403);
+assert.ok(!JSON.stringify(diagnostic).includes("user@example.com"));
+assert.ok(!JSON.stringify(diagnostic).includes("12345678-1234-1234-1234-123456789abc"));
+assert.ok(!JSON.stringify(diagnostic).includes("QWERTY"));
+
 // Offline failure blocks writes; reconnect re-fetches, merges, then persists.
 let online = false;
 let writes = 0;
@@ -109,6 +159,81 @@ assert.equal(state.reach, 8); // stale local never lowers the remote count
 assert.equal(state.spread, 7);
 assert.equal(state.bring, 1);
 assert.equal(writes, 1);
+
+// A response from an account that signed out cannot merge or start a write.
+let currentSync = true;
+let staleMerges = 0;
+let staleWrites = 0;
+let finishFetch!: (value: { account: string }) => void;
+const pendingFetch = new Promise<{ account: string }>((resolve) => { finishFetch = resolve; });
+const staleFetch = mergeBeforeWrite(() => pendingFetch, () => { staleMerges++; }, async () => { staleWrites++; }, () => currentSync);
+currentSync = false; // logout and a new account becoming active
+finishFetch({ account: "A" });
+await assert.rejects(staleFetch, /Stale account sync/);
+assert.equal(staleMerges, 0);
+assert.equal(staleWrites, 0);
+
+// A session change while the network write is pending is fenced after it settles.
+currentSync = true;
+let finishWrite!: () => void;
+const pendingWrite = new Promise<void>((resolve) => { finishWrite = resolve; });
+const staleWrite = mergeBeforeWrite(async () => ({ account: "A" }), () => { staleMerges++; }, () => pendingWrite, () => currentSync);
+await Promise.resolve();
+await Promise.resolve();
+currentSync = false;
+finishWrite();
+await assert.rejects(staleWrite, /Stale account sync/);
+assert.equal(staleWrites, 0);
+
+// Account namespaces never reuse another account's progress, cycle, or history.
+class MemoryStorage {
+  values = new Map<string, string>();
+  getItem(key: string) { return this.values.get(key) ?? null; }
+  setItem(key: string, value: string) { this.values.set(key, String(value)); }
+  removeItem(key: string) { this.values.delete(key); }
+}
+const memoryStorage = new MemoryStorage();
+Object.defineProperty(globalThis, "localStorage", { configurable: true, value: memoryStorage });
+Object.defineProperty(globalThis, "navigator", { configurable: true, value: { onLine: false } });
+const accountStore = await import("../src/store.ts");
+accountStore.completeAction("reach", "call"); // guest progress is deliberately adopted by first account
+const guestCount = accountStore.totalActions(accountStore.getState());
+accountStore.activateAccount("account-A");
+assert.equal(accountStore.totalActions(accountStore.getState()), guestCount);
+for (let i = 0; i < 10; i++) accountStore.completeAction("reach", "call");
+for (let i = 0; i < 10; i++) accountStore.completeAction("spread", "share");
+for (let i = 0; i < 10; i++) accountStore.completeAction("bring", "plan");
+assert.equal(accountStore.getState().challengeHistory.length, 1);
+assert.equal(accountStore.startNewChallenge(), true);
+assert.equal(accountStore.getState().challengeCycle, 2);
+assert.equal(accountStore.totalActions(accountStore.getState()), 0);
+accountStore.activateGuest();
+assert.equal(accountStore.totalActions(accountStore.getState()), guestCount); // sign-out restores guest namespace
+accountStore.activateAccount("account-B"); // A -> logout -> B
+assert.equal(accountStore.totalActions(accountStore.getState()), 0);
+assert.equal(accountStore.getState().challengeHistory.length, 0);
+accountStore.completeAction("spread", "share");
+accountStore.activateAccount("account-A"); // B -> A restores A's cycle/history
+assert.equal(accountStore.totalActions(accountStore.getState()), 0);
+assert.equal(accountStore.getState().challengeCycle, 2);
+assert.equal(accountStore.getState().challengeHistory.length, 1);
+accountStore.activateAccount("account-B");
+assert.equal(accountStore.totalActions(accountStore.getState()), 1);
+assert.equal(accountStore.getState().challengeCycle, 1);
+assert.equal(accountStore.getState().challengeHistory.length, 0);
+assert.ok(memoryStorage.getItem("t10.state.account.account-A"));
+assert.ok(memoryStorage.getItem("t10.state.account.account-B"));
+
+// Server RPC mirrors this allowlist; sensitive/arbitrary client props fail locally too.
+assert.equal(validAnalyticsEvent("action_completed", { track: "reach", kind: "call", n: 1 }), true);
+assert.equal(validAnalyticsEvent("action_completed", { track: "reach", kind: "call", n: 1, address: "x" }), false);
+assert.equal(validAnalyticsEvent("share", { channel: "x", referral_code: "ABC123" }), false);
+assert.equal(validAnalyticsEvent("visited", { user_id: "uuid" }), false);
+for (const props of [
+  { address: "123 Main St" }, { candidate: "X" }, { party: "Y" }, { voting_method: "mail" },
+  { location: "polling place" }, { election_date: "2026-11-03" }, { transport: "ride" },
+  { free_text: "private plan" }, { referral_code: "QWERTY" },
+]) assert.equal(validAnalyticsEvent("visited", props), false);
 
 // Message placeholders render into an editable copy without changing templates.
 const friendly = MESSAGE_PRESETS.find((p) => p.id === "text-friendly")!;
@@ -345,18 +470,25 @@ assert.match(cycleMigration, /create policy "challenge history: read own"/);
 assert.match(cycleMigration, /completed_at timestamptz/);
 assert.doesNotMatch(cycleMigration, /candidate_choice|party_preference|voting_location|street_address/i);
 const authSource = await readFile(new URL("../src/auth.tsx", import.meta.url), "utf8");
-assert.match(authSource, /onConflict: "user_id,challenge_cycle"/);
-assert.match(authSource, /challenge_history/);
+assert.match(authSource, /archive_completed_challenge/);
+assert.match(authSource, /rpc\("app_snapshot"\)/);
+assert.doesNotMatch(authSource, /\.from\(\s*["']challenge_history["']\s*\)/);
+assert.match(authSource, /getActiveAccountId\(\)/);
+assert.match(authSource, /abortRef\.current\?\.abort\(\)/);
+assert.match(authSource, /syncWorkGenerationRef\.current === generationRef\.current/);
 const storeSource = await readFile(new URL("../src/store.ts", import.meta.url), "utf8");
 const completeActionSource = storeSource.match(/export function completeAction\([\s\S]*?\n}/)?.[0] ?? "";
 assert.match(completeActionSource, /completedAt: completed \? now : null/);
 assert.match(completeActionSource, /archiveCompletedCycle\(state\.challengeHistory, challengeCycle\)/);
 assert.match(storeSource, /challengeCompletedAt: cycle\.completedAt/); // reload retains completion timestamp
 assert.match(storeSource, /completionTimestampFromActionLogs\(challenge\)/);
-assert.match(storeSource, /localStorage\.setItem\(KEY, JSON\.stringify\(loaded\)\)/);
-const signOutCleanup = storeSource.match(/export function clearAccountFields\(\)[\s\S]*?\n}/)?.[0] ?? "";
-assert.ok(signOutCleanup.includes("...state"));
-assert.doesNotMatch(signOutCleanup, /challengeHistory\s*:/); // signed-out history remains local for a later sign-in
+assert.match(storeSource, /t10\.state\.guest/);
+assert.match(storeSource, /t10\.state\.account\./);
+assert.match(storeSource, /activateAccount\(userId: string\)/);
+assert.match(storeSource, /activateGuest\(\)/);
+assert.match(storeSource, /LEGACY_QUARANTINE_KEY/);
+assert.match(storeSource, /challengeHistory: ChallengeHistoryRecord\[\]/);
+assert.match(storeSource, /historyFromRemote\(r\.challenge_history\)/);
 const historyScreen = await readFile(new URL("../src/screens/ChallengeHistory.tsx", import.meta.url), "utf8");
 assert.match(historyScreen, /sortChallengeHistory/);
 assert.match(historyScreen, /Completed \{completedDate\}/);
@@ -369,7 +501,14 @@ assert.doesNotMatch(historyScreen, /date unavailable/);
 const homeSource = await readFile(new URL("../src/screens/Home.tsx", import.meta.url), "utf8");
 assert.match(homeSource, /onClick=\{\(\) => setHistoryOpen\(true\)\}/);
 assert.match(homeSource, /<ChallengeHistoryList \/>/);
-assert.match(homeSource, /total === 0 && !s\.flags\.challengeStartedAt/);
+assert.doesNotMatch(homeSource, /Choose election context \(optional\)/);
+assert.match(homeSource, /if \(total === 0\)[\s\S]*?setNewChallengeOpen\(true\)/);
+assert.match(homeSource, /title=\{historyOpen \? "Challenge History" : completed \? "Start a new challenge\?" : "Start a 10·10·10"\}/);
+assert.match(homeSource, /Start Challenge/);
+assert.match(homeSource, /Optional — this only labels the challenge in your Challenge History/);
+assert.match(homeSource, /setChallengeElectionContext\(context\)[\s\S]*?nav\(`\/challenge\/\$\{nextTrack\(s\)\}`\)/);
+assert.match(homeSource, /startNewChallenge\(context\)/);
+assert.match(homeSource, /\?\? "General turnout challenge"/);
 assert.match(homeSource, /role="radiogroup"/);
 assert.match(homeSource, /className="context-option"/);
 assert.doesNotMatch(homeSource, /<select className="select"/);
@@ -383,9 +522,62 @@ const sheetStyles = await readFile(new URL("../src/styles/app.css", import.meta.
 assert.match(sheetStyles, /\.sheet-backdrop[\s\S]*?z-index: 1000/);
 assert.match(sheetStyles, /max-height: min\(86dvh, calc\(100dvh - var\(--safe-top\) - 12px\)\)/);
 assert.match(sheetStyles, /\.sheet__content[\s\S]*?overflow-y: auto/);
+const settingsSource = await readFile(new URL("../src/screens/Menu.tsx", import.meta.url), "utf8");
+assert.match(settingsSource, /className="card--paper menu-signin"/);
+assert.match(sheetStyles, /\.sheet--wide \.menu-signin\s*\{\s*padding-inline: 18px;/);
+assert.match(sheetStyles, /\.sheet--wide \.menu-signin :is\(\.input, \.btn--block\)[\s\S]*?width: 100%;[\s\S]*?max-width: 100%;[\s\S]*?box-sizing: border-box/);
+assert.match(sheetStyles, /\.sheet--wide \.sheet__content\s*\{\s*padding-right: 14px;/);
 assert.match(sheetStyles, /calc\(var\(--safe-bottom\) \+ 20px\)/);
 assert.match(sheetStyles, /@keyframes sheet-down\s*\{\s*to \{ transform: translateY\(100%\)/);
 assert.doesNotMatch(homeSource, /\bdark\s+fullHeight/);
+
+const securityMigration = await readFile(new URL("../supabase/migrations/0008_security_hardening.sql", import.meta.url), "utf8");
+assert.match(securityMigration, /revoke all on public\.progress[\s\S]*public\.analytics_events from public, anon, authenticated/);
+assert.match(securityMigration, /revoke delete on public\.progress from anon, authenticated/);
+assert.match(securityMigration, /drop column if exists voting_method/);
+assert.match(securityMigration, /drop policy if exists "referrals: read as referrer"/);
+assert.match(securityMigration, /create or replace function public\.archive_completed_challenge\(\)/);
+assert.match(securityMigration, /for update/);
+assert.match(securityMigration, /on conflict \(user_id, challenge_cycle\) do update set/);
+assert.match(securityMigration, /server_validated boolean not null default false/);
+assert.match(securityMigration, /reach_final = 10, share_final = 10, bring_final = 10, total_actions = 30/);
+assert.match(securityMigration, /challenge_cycle = old\.challenge_cycle and h\.server_validated/);
+assert.match(securityMigration, /where server_validated/);
+assert.match(securityMigration, /create or replace function public\.record_analytics_event/);
+assert.match(securityMigration, /jsonb_object_length\(p_props\)/);
+assert.match(securityMigration, /id::text = substring\(p_session_id from 9\)/);
+assert.match(securityMigration, /referral_starts/);
+assert.doesNotMatch(securityMigration, /'verified_referrals'/);
+const securitySqlTests = await readFile(new URL("../supabase/tests/0008_security_hardening.sql", import.meta.url), "utf8");
+assert.match(securitySqlTests, /unvalidated history cannot authorize a new cycle/);
+assert.match(securitySqlTests, /another account UUID cannot be used as a telemetry session/);
+assert.match(securitySqlTests, /clients do not directly read history/);
+const cleanupMigration = await readFile(new URL("../supabase/migrations/0009_security_cleanup.sql", import.meta.url), "utf8");
+assert.match(cleanupMigration, /revoke select on table public\.challenge_history/);
+assert.match(cleanupMigration, /revoke execute on function public\.guard_progress_cycle\(\) from public/);
+assert.match(cleanupMigration, /security definer set search_path = pg_catalog, public/);
+const cleanupSqlTests = await readFile(new URL("../supabase/tests/0009_security_cleanup.sql", import.meta.url), "utf8");
+assert.match(cleanupSqlTests, /progress cycle trigger remains enabled and attached/);
+const progressSyncMigration = await readFile(new URL("../supabase/migrations/0010_restore_progress_sync.sql", import.meta.url), "utf8");
+assert.match(progressSyncMigration, /grant update \(user_id\) on table public\.progress to authenticated/i);
+assert.doesNotMatch(progressSyncMigration, /grant\s+(?:insert|update|delete)\s+on table public\.progress/i);
+const progressSyncSqlTests = await readFile(new URL("../supabase/tests/0010_restore_progress_sync.sql", import.meta.url), "utf8");
+assert.match(progressSyncSqlTests, /authenticated can execute the exact client progress upsert/);
+assert.match(progressSyncSqlTests, /authenticated cannot insert or upsert another user row/);
+assert.match(progressSyncSqlTests, /authenticated cannot delete progress/);
+const snapshotDefinition = securityMigration.match(/create or replace function public\.app_snapshot\(\)[\s\S]*?\$\$;/)?.[0] ?? "";
+assert.doesNotMatch(snapshotDefinition, /voting_method/);
+const analyticsSource = await readFile(new URL("../src/analytics.ts", import.meta.url), "utf8");
+assert.match(analyticsSource, /record_analytics_event/);
+assert.doesNotMatch(analyticsSource, /analytics_events"\)\.insert/);
+assert.doesNotMatch(analyticsSource, /VITE_ANALYTICS_URL/);
+const trustSource = await readFile(new URL("../src/screens/Trust.tsx", import.meta.url), "utf8");
+assert.match(trustSource, /reminder settings/);
+const reminderSource = await readFile(new URL("../src/screens/Reminders.tsx", import.meta.url), "utf8");
+assert.match(reminderSource, /getActiveAccountId\(\) !== session\.user\.id/);
+assert.match(reminderSource, /abortSignal\(controller\.signal\)/);
+const referralUi = await readFile(new URL("../src/screens/Menu.tsx", import.meta.url), "utf8");
+assert.doesNotMatch(referralUi, /verified referral/i);
 
 const eventTitle = "2026 Federal Midterm Election";
 const eventDate = "2026-11-03";

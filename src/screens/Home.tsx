@@ -24,7 +24,6 @@ export default function Home() {
   const { openMenu, openReminders } = useChrome();
   const s = useStore((x) => x);
   const [newChallengeOpen, setNewChallengeOpen] = useState(false);
-  const [contextOpen, setContextOpen] = useState(false);
   const [historyOpen, setHistoryOpen] = useState(false);
   const [contextOptionsOpen, setContextOptionsOpen] = useState(false);
   const [completionExpanded, setCompletionExpanded] = useState(false);
@@ -151,10 +150,17 @@ export default function Home() {
           </section>
         ) : (
           <div className="home-cta home-start-actions">
-            <Button display block onClick={() => nav(`/challenge/${nextTrack(s)}`)}>
+            <Button display block onClick={() => {
+              if (total === 0) {
+                setNextElectionId(s.challengeElection?.electionId ?? "");
+                setContextOptionsOpen(false);
+                setNewChallengeOpen(true);
+              } else {
+                nav(`/challenge/${nextTrack(s)}`);
+              }
+            }}>
               {total === 0 ? "Start the Challenge" : "Continue Challenge"}
             </Button>
-            {total === 0 && !s.flags.challengeStartedAt && <Button size="sm" variant="ghost" onClick={() => { setNextElectionId(s.challengeElection?.electionId ?? ""); setContextOpen(true); setContextOptionsOpen(false); }}>Choose election context (optional)</Button>}
           </div>
         )}
 
@@ -210,16 +216,17 @@ export default function Home() {
         </section>
       </div>
       <Sheet
-        open={newChallengeOpen || contextOpen || historyOpen}
-        onClose={() => { setNewChallengeOpen(false); setContextOpen(false); setHistoryOpen(false); setContextOptionsOpen(false); }}
-        title={historyOpen ? "Challenge History" : newChallengeOpen ? "Start a new challenge?" : "Choose an election context"}
+        open={newChallengeOpen || historyOpen}
+        onClose={() => { setNewChallengeOpen(false); setHistoryOpen(false); setContextOptionsOpen(false); }}
+        title={historyOpen ? "Challenge History" : completed ? "Start a new challenge?" : "Start a 10·10·10"}
         closeButton
       >
         {historyOpen ? <ChallengeHistoryList /> : (
           <div className="stack-sm challenge-start-sheet">
-            <p>{newChallengeOpen ? "Your completed challenge will stay in your Challenge History. Reach 10, Share 10, and Bring 10 will start again at 0." : "You can associate this challenge with a known upcoming election, or leave it as a general turnout challenge."}</p>
+            <p>{completed ? "Your completed challenge will stay in your Challenge History. Reach 10, Share 10, and Bring 10 will start again at 0." : "Choose an optional election context, or keep this as a general turnout challenge."}</p>
             <div className="field">
               <span className="field__label">Election context (optional)</span>
+              <span className="field__hint">Optional — this only labels the challenge in your Challenge History.</span>
               <button
                 type="button"
                 className="context-picker"
@@ -245,7 +252,7 @@ export default function Home() {
                 </div>
               )}
             </div>
-            {newChallengeOpen ? <Button block onClick={() => {
+            {completed ? <Button block onClick={() => {
               const election = electionContexts.find((item) => item.id === nextElectionId);
               const context: ElectionContext | null = election ? {
                 electionId: election.id,
@@ -264,9 +271,13 @@ export default function Home() {
                 electionType: election.type,
                 ...(election.stateCode ? { jurisdiction: election.stateCode } : {}),
               } : null;
-              if (setChallengeElectionContext(context)) { setContextOpen(false); setContextOptionsOpen(false); }
-            }}>Save Context</Button>}
-            <Button block variant="ghost" onClick={() => { setNewChallengeOpen(false); setContextOpen(false); setContextOptionsOpen(false); }}>Cancel</Button>
+              if (setChallengeElectionContext(context)) {
+                setNewChallengeOpen(false);
+                setContextOptionsOpen(false);
+                nav(`/challenge/${nextTrack(s)}`);
+              }
+            }}>Start Challenge</Button>}
+            <Button block variant="ghost" onClick={() => { setNewChallengeOpen(false); setContextOptionsOpen(false); }}>Cancel</Button>
           </div>
         )}
       </Sheet>

@@ -5,13 +5,17 @@ import {
   useEffect,
   useRef,
   useState,
+  useId,
+  useLayoutEffect,
   type CSSProperties,
   type PointerEvent as ReactPointerEvent,
   type ReactNode,
 } from "react";
 import { createPortal } from "react-dom";
+import { useLocation, useNavigate } from "react-router-dom";
 import * as I from "../lib/icons";
 import type { OfficialSource } from "../data";
+import { sheetStack, stateWithSheetStack } from "../lib/sheet-history";
 
 /* ---------- icon lookup by data.ts string ---------- */
 const MAP: Record<string, (p: any) => JSX.Element> = {
@@ -147,14 +151,23 @@ export function Sheet({
   onClose,
   title,
   closeButton,
+  className = "",
   children,
 }: {
   open: boolean;
   onClose: () => void;
   title?: string;
   closeButton?: boolean;
+  className?: string;
   children: ReactNode;
 }) {
+  const location = useLocation();
+  const navigate = useNavigate();
+  const id = useId();
+  const wasOpen = useRef(false);
+  const hasHistoryEntry = useRef(false);
+  const awaitingHistoryEntry = useRef(false);
+  const cleanupPending = useRef(false);
   const dialogRef = useRef<HTMLDivElement>(null);
   const dragRef = useRef<{ pointerId: number; startY: number; startedAt: number } | null>(null);
   const closeRef = useRef(onClose);
@@ -163,6 +176,53 @@ export function Sheet({
   const [dragY, setDragY] = useState(0);
   const [hasDragged, setHasDragged] = useState(false);
   closeRef.current = onClose;
+  useLayoutEffect(() => {
+    const stack = sheetStack(location.state);
+    const isTop = stack.at(-1) === id;
+    if (stack.includes(id)) awaitingHistoryEntry.current = false;
+
+    if (open && !wasOpen.current) {
+      wasOpen.current = true;
+      if (!stack.includes(id)) {
+        awaitingHistoryEntry.current = true;
+        navigate({ pathname: location.pathname, search: location.search, hash: location.hash }, {
+          state: stateWithSheetStack(location.state, [...stack, id]),
+          preventScrollReset: true,
+        });
+      }
+      hasHistoryEntry.current = true;
+      cleanupPending.current = false;
+      return;
+    }
+
+    if (open && wasOpen.current && awaitingHistoryEntry.current) return;
+
+    if (open && wasOpen.current && hasHistoryEntry.current && !stack.includes(id)) {
+      // Browser/Android Back removed this sheet's entry. Close without popping again.
+      wasOpen.current = false;
+      hasHistoryEntry.current = false;
+      closeRef.current();
+      return;
+    }
+
+    if (!open && wasOpen.current) {
+      wasOpen.current = false;
+      awaitingHistoryEntry.current = false;
+      cleanupPending.current = true;
+      if (isTop) {
+        hasHistoryEntry.current = false;
+        navigate(-1);
+      }
+      return;
+    }
+
+    // If a parent sheet closes while a nested sheet is above it, remove the
+    // parent's entry when that nested sheet has unwound.
+    if (!open && hasHistoryEntry.current && isTop && cleanupPending.current) {
+      hasHistoryEntry.current = false;
+      navigate(-1);
+    }
+  }, [open, location.key, location.pathname, location.search, location.hash, location.state, navigate, id]);
   useEffect(() => {
     if (open) {
       setVisible(true);
@@ -242,7 +302,7 @@ export function Sheet({
       onClick={closing ? undefined : onClose}
     >
       <div
-        className={`sheet ${hasDragged ? "sheet--interacted" : ""} ${dragY ? "sheet--dragging" : ""}`}
+        className={`sheet ${className} ${hasDragged ? "sheet--interacted" : ""} ${dragY ? "sheet--dragging" : ""}`}
         ref={dialogRef}
         style={{ "--sheet-drag-y": `${dragY}px` } as CSSProperties}
         role="dialog"
@@ -262,12 +322,10 @@ export function Sheet({
           >
             <div className="sheet__grip" />
           </div>
-          {(title || closeButton) && (
-            <div className="sheet__heading">
-              {title && <div className="sheet__title">{title}</div>}
-              {closeButton && <button className="sheet__close" type="button" aria-label="Close sheet" onClick={onClose}>×</button>}
-            </div>
-          )}
+          <div className={`sheet__heading ${!title && !closeButton ? "sheet__heading--desktop-only" : ""}`}>
+            {title && <div className="sheet__title">{title}</div>}
+            <button className={`sheet__close ${closeButton ? "" : "sheet__close--desktop-only"}`} type="button" aria-label="Close sheet" onClick={onClose}>×</button>
+          </div>
         </div>
         <div className="sheet__content">{children}</div>
       </div>

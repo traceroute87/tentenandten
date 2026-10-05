@@ -1,7 +1,8 @@
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 
-const url = import.meta.env.VITE_SUPABASE_URL as string | undefined;
-const anon = import.meta.env.VITE_SUPABASE_ANON_KEY as string | undefined;
+const env = import.meta.env ?? {};
+const url = env.VITE_SUPABASE_URL as string | undefined;
+const anon = env.VITE_SUPABASE_ANON_KEY as string | undefined;
 
 /** Backend is optional at build time; account features hide when unset. */
 export const backendConfigured = Boolean(url && anon);

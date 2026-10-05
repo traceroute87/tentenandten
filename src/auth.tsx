@@ -16,12 +16,15 @@ import {
   subscribe,
   mergeRemote,
   localProgress,
-  clearAccountFields,
+  activateAccount,
+  activateGuest,
+  getActiveAccountId,
   totalActions,
   type RemoteSnapshot,
 } from "./store";
 import { track } from "./analytics";
-import { mergeBeforeWrite } from "./lib/sync";
+import { mergeBeforeWrite, persistProgressAndArchive } from "./lib/sync";
+import { logSyncFailure } from "./lib/sync-diagnostics";
 
 type AuthState = {
   configured: boolean;
@@ -45,51 +48,59 @@ const Ctx = createContext<AuthState>({
 
 export const useAuth = () => useContext(Ctx);
 
-async function fetchSnapshot(): Promise<RemoteSnapshot> {
+async function fetchSnapshot(signal: AbortSignal): Promise<RemoteSnapshot> {
   if (!supabase) throw new Error("Backend not configured");
-  const { data, error } = await supabase.rpc("app_snapshot");
-  if (error) throw error;
+  const { data, error } = await supabase.rpc("app_snapshot").abortSignal(signal);
+  if (error) { logSyncFailure("APP_SNAPSHOT_FAILED", error); throw error; }
   if (!data) throw new Error("Account snapshot unavailable");
   return data as RemoteSnapshot;
 }
 
-async function pushProgress(userId: string, p = localProgress()) {
+async function pushProgress(userId: string, p: ReturnType<typeof localProgress>, serverCycle: number, signal: AbortSignal, isCurrent: () => boolean) {
   if (!supabase) throw new Error("Backend not configured");
+  if (!isCurrent()) throw new Error("Stale account sync");
   const { data: u, error: authError } = await supabase.auth.getUser();
-  if (authError) throw authError;
-  if (u.user?.id !== userId) throw new Error("Account changed during sync");
-  const { error } = await supabase.from("progress").upsert(
-    {
-      user_id: u.user.id,
-      reach: p.reach,
-      spread: p.spread,
-      bring: p.bring,
-      voting_checklist: p.voting_checklist,
-      own_state: p.own_state,
-      challenge_cycle: p.challenge_cycle,
-      challenge_started_at: p.challenge_started_at,
-      challenge_completed_at: p.challenge_completed_at,
-      election_id: p.election_id,
-      election_name: p.election_name,
-      election_date: p.election_date,
-      election_type: p.election_type,
-      jurisdiction: p.jurisdiction,
-      updated_at: new Date().toISOString(),
-    },
-    { onConflict: "user_id" },
-  );
-  if (error) throw error;
-  if (p.challenge_history.length) {
-    const { error: historyError } = await supabase.from("challenge_history").upsert(
-      p.challenge_history.map((record) => ({ user_id: u.user!.id, ...record })),
-      { onConflict: "user_id,challenge_cycle" },
-    );
-    if (historyError) throw historyError;
+  if (authError) { logSyncFailure("SESSION_CHECK_FAILED", authError); throw authError; }
+  if (u.user?.id !== userId || !isCurrent()) throw new Error("Stale account sync");
+  if (p.challenge_cycle > serverCycle) {
+    const { error: archivePreviousError } = await supabase.rpc("archive_completed_challenge").abortSignal(signal);
+    if (archivePreviousError) { logSyncFailure("ARCHIVE_CHALLENGE_FAILED", archivePreviousError); throw archivePreviousError; }
+    if (!isCurrent()) throw new Error("Stale account sync");
   }
+  await persistProgressAndArchive(p, async () => {
+    const { error } = await supabase!.from("progress").upsert(
+      {
+        user_id: u.user.id,
+        reach: p.reach,
+        spread: p.spread,
+        bring: p.bring,
+        voting_checklist: p.voting_checklist,
+        own_state: p.own_state,
+        challenge_cycle: p.challenge_cycle,
+        challenge_started_at: p.challenge_started_at,
+        challenge_completed_at: p.challenge_completed_at,
+        election_id: p.election_id,
+        election_name: p.election_name,
+        election_date: p.election_date,
+        election_type: p.election_type,
+        jurisdiction: p.jurisdiction,
+        updated_at: new Date().toISOString(),
+      },
+      { onConflict: "user_id" },
+    ).abortSignal(signal);
+    if (error) { logSyncFailure("PUSH_PROGRESS_FAILED", error); throw error; }
+    if (!isCurrent()) throw new Error("Stale account sync");
+  }, async () => {
+    const { error: archiveError } = await supabase!.rpc("archive_completed_challenge").abortSignal(signal);
+    if (archiveError) { logSyncFailure("ARCHIVE_CHALLENGE_FAILED", archiveError); throw archiveError; }
+    if (!isCurrent()) throw new Error("Stale account sync");
+  });
   if (p.own_state) {
-    const { error: profileError } = await supabase.from("profiles").update({ state: p.own_state }).eq("id", userId);
-    if (profileError) throw profileError;
+    if (!isCurrent()) throw new Error("Stale account sync");
+    const { error: profileError } = await supabase.from("profiles").update({ state: p.own_state }).eq("id", userId).abortSignal(signal);
+    if (profileError) { logSyncFailure("PROFILE_SYNC_FAILED", profileError); throw profileError; }
   }
+  if (!isCurrent()) throw new Error("Stale account sync");
 }
 
 export function AuthProvider({ children }: { children: ReactNode }) {
@@ -103,21 +114,39 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const sessionRef = useRef<Session | null>(null);
   const authEventRef = useRef(false);
   const syncRef = useRef<Promise<void> | null>(null);
-  const syncUserRef = useRef("");
+  const syncWorkUserRef = useRef("");
+  const syncWorkGenerationRef = useRef(-1);
+  const generationRef = useRef(0);
+  const abortRef = useRef<AbortController | null>(null);
+
+  function activateSession(next: Session | null) {
+    const nextId = next?.user.id ?? null;
+    if (getActiveAccountId() === nextId) return;
+    generationRef.current++;
+    abortRef.current?.abort();
+    abortRef.current = null;
+    pushSigRef.current = "";
+    linkedRef.current = false;
+    startedRef.current = false;
+    if (nextId) activateAccount(nextId);
+    else activateGuest();
+  }
 
   // Restore the session and merge cloud state before enabling writes.
   useEffect(() => {
     if (!supabase) return;
     const { data: sub } = supabase.auth.onAuthStateChange((event, s) => {
       authEventRef.current = true;
+      activateSession(s);
       sessionRef.current = s;
       setSession(s);
       setReady(true);
       if (event === "INITIAL_SESSION") {
-        if (s) queueMicrotask(() => void syncAccount(s).catch(() => {}));
+        if (s) { setSyncReady(false); queueMicrotask(() => void syncAccount(s).catch(() => {})); }
         else setSyncReady(true);
       }
       if (event === "SIGNED_IN" && s) {
+        setSyncReady(false);
         track("account_created_or_signed_in");
         queueMicrotask(() => void syncAccount(s).catch(() => {}));
       }
@@ -127,12 +156,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         pushSigRef.current = "";
         setSyncReady(true);
         setSyncError("");
-        clearAccountFields();
+        sessionRef.current = null;
+        setSession(null);
+        setReady(true);
       }
     });
     supabase.auth.getSession().then(({ data, error }) => {
       if (authEventRef.current) return;
       if (error) throw error;
+      activateSession(data.session);
       sessionRef.current = data.session;
       setSession(data.session);
       setReady(true);
@@ -151,6 +183,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     return () => {
       window.removeEventListener("online", onOnline);
       sub.subscription.unsubscribe();
+      generationRef.current++;
+      abortRef.current?.abort();
+      abortRef.current = null;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -158,49 +193,71 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   async function syncAccount(account: Session) {
     if (!supabase) return;
     if (syncRef.current) {
-      if (syncUserRef.current === account.user.id) return syncRef.current;
+      if (syncWorkUserRef.current === account.user.id && syncWorkGenerationRef.current === generationRef.current) return syncRef.current;
       await syncRef.current.catch(() => {});
-      return syncAccount(account);
+      if (sessionRef.current?.user.id === account.user.id) return syncAccount(account);
+      return;
     }
 
+    if (getActiveAccountId() !== account.user.id || sessionRef.current?.user.id !== account.user.id) return;
     setSyncReady(false);
     setSyncError("");
-    if (syncUserRef.current !== account.user.id) pushSigRef.current = "";
-    syncUserRef.current = account.user.id;
+    syncWorkUserRef.current = account.user.id;
+    const generation = generationRef.current;
+    syncWorkGenerationRef.current = generation;
+    const controller = new AbortController();
+    abortRef.current = controller;
+    const isCurrent = () => generationRef.current === generation
+      && sessionRef.current?.user.id === account.user.id
+      && getActiveAccountId() === account.user.id
+      && !controller.signal.aborted;
     const work = (async () => {
       if (!navigator.onLine) throw new Error("offline");
-      await mergeBeforeWrite(fetchSnapshot, mergeRemote, async () => {
+      let serverCycle = 1;
+      await mergeBeforeWrite(async () => {
+        const snapshot = await fetchSnapshot(controller.signal);
+        serverCycle = Math.max(1, Number(snapshot.challenge_cycle) || 1);
+        return snapshot;
+      }, mergeRemote, async () => {
+        if (!isCurrent()) throw new Error("Stale account sync");
         const progress = localProgress();
         const signature = JSON.stringify(progress);
         if (signature !== pushSigRef.current) {
-          await pushProgress(account.user.id, progress);
+          await pushProgress(account.user.id, progress, serverCycle, controller.signal, isCurrent);
           pushSigRef.current = signature;
         }
-      });
+      }, isCurrent);
 
+      if (!isCurrent()) throw new Error("Stale account sync");
       const ref = getState().profile.referredBy;
       if (ref && !linkedRef.current) {
-        const { error } = await supabase!.rpc("link_referral", { p_code: ref });
-        if (error) throw error;
+        const { error } = await supabase!.rpc("link_referral", { p_code: ref }).abortSignal(controller.signal);
+        if (error) { logSyncFailure("REFERRAL_SYNC_FAILED", error); throw error; }
+        if (!isCurrent()) throw new Error("Stale account sync");
         linkedRef.current = true;
         track("referral_linked");
       }
       if (totalActions(getState()) > 0 && !startedRef.current) {
-        const { error } = await supabase!.rpc("mark_challenge_started");
-        if (error) throw error;
+        const { error } = await supabase!.rpc("mark_challenge_started").abortSignal(controller.signal);
+        if (error) { logSyncFailure("REFERRAL_SYNC_FAILED", error); throw error; }
+        if (!isCurrent()) throw new Error("Stale account sync");
         startedRef.current = true;
       }
-      if (ref || totalActions(getState()) > 0) mergeRemote(await fetchSnapshot());
+      if (ref || totalActions(getState()) > 0) {
+        const snapshot = await fetchSnapshot(controller.signal);
+        if (!isCurrent()) throw new Error("Stale account sync");
+        mergeRemote(snapshot);
+      }
     })();
     syncRef.current = work;
     try {
       await work;
-      if (sessionRef.current?.user.id === account.user.id) {
+      if (isCurrent()) {
         setSyncError("");
         setSyncReady(true);
       }
     } catch (error) {
-      if (sessionRef.current?.user.id === account.user.id) {
+      if (isCurrent()) {
         setSyncReady(false);
         setSyncError(navigator.onLine
           ? "Sync failed. Your changes are saved on this device. Retry when you have a connection."
@@ -209,6 +266,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       throw error;
     } finally {
       if (syncRef.current === work) syncRef.current = null;
+      if (abortRef.current === controller) abortRef.current = null;
     }
   }
 
@@ -265,5 +323,5 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     },
   };
 
-  return <Ctx.Provider value={value}>{children}</Ctx.Provider>;
+  return <Ctx.Provider value={value}>{ready ? children : null}</Ctx.Provider>;
 }

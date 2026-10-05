@@ -7,9 +7,9 @@ export function StateSetup() {
   const { pathname } = useLocation();
   const profile = useStore((s) => s.profile);
   const dismissed = useStore((s) => !!s.flags.stateSetupDismissed);
-  if (profile.state || dismissed || !(pathname === "/voting" || pathname === "/help" || pathname.startsWith("/help/"))) return null;
+  const open = !profile.state && !dismissed && (pathname === "/voting" || pathname === "/help" || pathname.startsWith("/help/"));
   return (
-      <Sheet open onClose={dismissStateSetup} title="Choose your state to get relevant voting resources.">
+      <Sheet open={open} onClose={dismissStateSetup} title="Choose your state to get relevant voting resources.">
         <label className="field">
           <span className="field__label">State</span>
           <select className="select" autoFocus defaultValue="" onChange={(e) => {

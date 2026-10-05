@@ -1,8 +1,9 @@
 import { useEffect, useState } from "react";
 import { TIMELINE, STATES, NATIONAL } from "../data";
-import { useStore, setReminders, setOwnState } from "../store";
+import { useStore, setReminders, setOwnState, getActiveAccountId } from "../store";
 import { useAuth } from "../auth";
 import { supabase } from "../lib/supabase";
+import { logSyncFailure } from "../lib/sync-diagnostics";
 import { IcoCalendar } from "../lib/icons";
 
 const today = () => new Date().toISOString().slice(0, 10);
@@ -50,26 +51,46 @@ export function RemindersSheet() {
     }
     setLoadedUser("");
     setPrefsError("");
-    void Promise.resolve(supabase.from("reminder_prefs").select("enabled,state")
-      .eq("user_id", session.user.id).maybeSingle()
-      .then(({ data, error }) => {
-        if (!active) return;
+    const controller = new AbortController();
+    void (async () => {
+      try {
+        const { data, error } = await supabase.from("reminder_prefs").select("enabled,state")
+          .eq("user_id", session.user.id).abortSignal(controller.signal).maybeSingle();
+        if (!active || controller.signal.aborted || getActiveAccountId() !== session.user.id) return;
         if (error) throw error;
         if (data) setReminders({ enabled: data.enabled, state: data.state ?? undefined }, false);
         setLoadedUser(session.user.id);
-      }))
-      .catch(() => { if (active) setPrefsError("Couldn't load saved reminders. Changes stay on this device until you reopen this screen."); });
-    return () => { active = false; };
+      } catch (error) {
+        if (active && !controller.signal.aborted && getActiveAccountId() === session.user.id) {
+          logSyncFailure("REMINDER_SYNC_FAILED", error);
+          setPrefsError("Couldn't load saved reminders. Changes stay on this device until you reopen this screen.");
+        }
+      }
+    })();
+    return () => { active = false; controller.abort(); };
   }, [session?.user.id]);
 
   useEffect(() => {
     if (!session || !supabase || loadedUser !== session.user.id) return;
     let active = true;
-    void Promise.resolve(supabase.from("reminder_prefs")
-      .upsert({ user_id: session.user.id, enabled, state: rstate || null }, { onConflict: "user_id" })
-      .then(({ error }) => { if (active) setPrefsError(error ? "Couldn't save reminder settings yet." : ""); }))
-      .catch(() => { if (active) setPrefsError("Couldn't save reminder settings yet."); });
-    return () => { active = false; };
+    const controller = new AbortController();
+    if (getActiveAccountId() !== session.user.id) return;
+    void (async () => {
+      try {
+        const { error } = await supabase.from("reminder_prefs")
+          .upsert({ user_id: session.user.id, enabled, state: rstate || null }, { onConflict: "user_id" })
+          .abortSignal(controller.signal);
+        if (error) logSyncFailure("REMINDER_SYNC_FAILED", error);
+        if (active && !controller.signal.aborted && getActiveAccountId() === session.user.id)
+          setPrefsError(error ? "Couldn't save reminder settings yet." : "");
+      } catch (error) {
+        if (active && !controller.signal.aborted && getActiveAccountId() === session.user.id) {
+          logSyncFailure("REMINDER_SYNC_FAILED", error);
+          setPrefsError("Couldn't save reminder settings yet.");
+        }
+      }
+    })();
+    return () => { active = false; controller.abort(); };
   }, [session?.user.id, enabled, rstate, loadedUser]);
 
   return (

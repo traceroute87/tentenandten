@@ -180,6 +180,7 @@ textarea {
   align-items: center; /* 10·10·10 centred above the tagline */
   gap: 2px;
 }
+.menu-brand { margin-bottom: 14px; }
 .brand__mark {
   font-family: var(--font-display);
   font-size: 30px;
@@ -1174,10 +1175,8 @@ textarea {
   gap: 8px;
   margin-top: 16px;
 }
-@media (max-width: 600px) {
-  .election-resources > .election-resource:last-child:nth-child(odd) {
-    grid-column: 1 / -1;
-  }
+.election-resources > .election-resource:last-child:nth-child(odd) {
+  grid-column: 1 / -1;
 }
 .election-card { overflow: hidden; }
 .election-resource {
@@ -1339,6 +1338,7 @@ textarea {
   flex-direction: column;
   width: 100%;
   max-width: var(--app-max);
+  min-width: 0;
   background: var(--u-bg);
   color: var(--u-text);
   border-radius: var(--r-lg) var(--r-lg) 0 0;
@@ -1375,6 +1375,9 @@ textarea {
   min-height: 40px;
   margin-bottom: 8px;
 }
+.sheet__heading--desktop-only {
+  display: none;
+}
 .sheet__close {
   display: grid;
   place-items: center;
@@ -1387,7 +1390,12 @@ textarea {
   font-size: 24px;
   line-height: 1;
 }
+.sheet__close.sheet__close--desktop-only {
+  display: none;
+}
 .sheet__content {
+  width: 100%;
+  max-width: 100%;
   min-width: 0;
   flex: 1 1 auto;
   min-height: 0;
@@ -1395,6 +1403,26 @@ textarea {
   overscroll-behavior: contain;
   -webkit-overflow-scrolling: touch;
   padding-bottom: calc(var(--safe-bottom) + 20px);
+}
+.sheet__content > * {
+  box-sizing: border-box;
+  min-width: 0;
+  max-width: 100%;
+}
+.sheet__content :is(input, select, textarea) {
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
+  margin-inline: 0;
+  box-sizing: border-box;
+}
+.sheet__content :is(button, .btn) {
+  max-width: 100%;
+  min-width: 0;
+  box-sizing: border-box;
+}
+.sheet__content :is(input, select, textarea, button):focus-visible {
+  outline-offset: -2px;
 }
 .sheet-backdrop.is-closing .sheet {
   animation: sheet-down 180ms ease-in both;
@@ -1541,8 +1569,11 @@ textarea {
   font-size: 12px;
 }
 .input,
-.select {
+.select,
+.sheet textarea {
   width: 100%;
+  min-width: 0;
+  max-width: 100%;
   min-height: 42px;
   padding: 10px 12px;
   border-radius: var(--r-md);
@@ -1558,7 +1589,6 @@ textarea {
   border-color: var(--border-strong);
   color: var(--text);
 }
-
 /* ---------- reminder banner ---------- */
 .reminder {
   display: flex;
@@ -1737,6 +1767,11 @@ textarea {
 .impact-community-grid .stat__n {
   line-height: 1;
 }
+.impact-actions {
+  display: grid;
+  gap: 12px;
+  min-width: 0;
+}
 @media (max-width: 899px) {
   .stats {
     grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -1744,6 +1779,7 @@ textarea {
   .impact-community-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
     margin-inline: 8px;
+    padding-bottom: 14px;
   }
   .impact-community-grid > .stat {
     min-width: 0;
@@ -1815,6 +1851,71 @@ textarea {
   }
   .screen {
     padding-bottom: 48px;
+  }
+  .sheet-backdrop {
+    align-items: center;
+    padding: 24px;
+  }
+  .sheet {
+    width: min(580px, calc(100vw - 48px));
+    max-width: 580px;
+    max-height: min(84vh, calc(100dvh - 48px));
+    padding: 0 24px;
+    border-radius: 20px;
+  }
+  .sheet:not(.sheet--wide) > .sheet__content {
+    width: calc(100% + 14px);
+    max-width: none;
+    margin-right: -14px;
+    padding-right: 14px;
+  }
+  .sheet.sheet--wide {
+    width: min(660px, calc(100vw - 48px));
+    max-width: 660px;
+    padding-right: 10px;
+  }
+  .sheet--wide .sheet__content {
+    padding-right: 14px;
+  }
+  .sheet--wide .menu-brand {
+    margin-bottom: 10px;
+    gap: 1px;
+  }
+  .sheet--wide .menu-brand .brand__mark { font-size: 27px; }
+  .sheet--wide .menu-brand .brand__tag { font-size: 10px; }
+  .sheet--wide .menu-signin {
+    padding-inline: 18px;
+    padding-bottom: 16px;
+  }
+  .sheet--wide .menu-signin :is(.input, .btn--block) {
+    width: 100%;
+    max-width: 100%;
+    box-sizing: border-box;
+  }
+  .sheet.sheet--reminders {
+    width: min(560px, calc(100vw - 48px));
+    max-width: 560px;
+  }
+  .sheet__header {
+    padding-top: 16px;
+  }
+  .sheet__drag-handle {
+    display: none;
+  }
+  .sheet__heading {
+    margin-bottom: 12px;
+  }
+  .sheet__heading--desktop-only {
+    display: flex;
+  }
+  .sheet__close.sheet__close--desktop-only {
+    display: grid;
+  }
+  .sheet__content {
+    padding-bottom: 24px;
+  }
+  .sheet--wide .menu-row {
+    padding-block: 11px;
   }
   .sync-notice {
     bottom: 12px;
@@ -2102,6 +2203,12 @@ textarea {
   .impact-wrap {
     max-width: 1080px;
     margin-inline: auto;
+  }
+  .impact-progress-panel {
+    padding: 18px;
+  }
+  .impact-community-panel {
+    padding: 16px;
   }
 
   .h1 {

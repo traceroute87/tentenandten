@@ -42,20 +42,21 @@ supabase db push          # hosted project
 Enable **Email** provider in Supabase Auth and set the Site URL / redirect to
 your app origin. Migrations under `supabase/migrations/` apply in order:
 `0001_init.sql` is the base schema; `0002_voting_plan.sql` adds the synced
-voting method + plan fields.
+voting method + plan fields. `0008_security_hardening.sql` removes the legacy
+cloud voting-method column and narrows history, referral, analytics, and progress access.
 
-## Verified referrals
+## Referral starts
 
 A referral can't be forged from the client:
 
 1. `?r=CODE` on first visit is stored locally (display only).
 2. On sign-up the code is passed to Supabase Auth metadata; a `SECURITY DEFINER`
    trigger writes the `referrals` row server-side (`account_created`).
-3. `mark_challenge_started()` (requires a real authenticated session) promotes it
-   to `challenge_started` — the only path to a **verified** referral.
+3. `mark_challenge_started()` (requires an authenticated session and nonzero
+   self-reported progress) promotes it to `challenge_started`.
 
-Editing `localStorage` only changes a display cache; counts come from
-`app_snapshot()`.
+This is an account-linked, honor-system challenge start, not independent
+verification. Counts come from the aggregate `app_snapshot()` response.
 
 ## Commands
 
