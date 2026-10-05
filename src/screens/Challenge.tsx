@@ -77,7 +77,8 @@ export default function Challenge() {
     const track = TRACKS[index];
     if (!track) return;
     tabsRef.current[index]?.focus();
-    nav(`/challenge/${track === "spread" ? "share" : track}`);
+    // Same-page tab switch: no route view transition.
+    nav(`/challenge/${track === "spread" ? "share" : track}`, { viewTransition: false });
   }
 
   function onTrackKeyDown(event: React.KeyboardEvent<HTMLButtonElement>, index: number) {
