@@ -127,6 +127,26 @@ await check("Challenge tabs: switching Reach/Share/Bring does not remount or re-
   }
 });
 
+await check("Menu links close the menu and open their page; Back returns to the previous page", async () => {
+  for (const viewport of [{ width: 1280, height: 900 }, { width: 390, height: 844 }]) {
+    const { ctx, page } = await openPage(viewport, "/impact");
+    try {
+      await page.getByLabel("Menu").locator("visible=true").first().click();
+      await page.waitForTimeout(300);
+      await page.getByText("Trust / Sources").click();
+      await page.waitForTimeout(600);
+      assert.equal(new URL(page.url()).pathname, "/trust", `${viewport.width}px: Trust link stayed on ${new URL(page.url()).pathname}`);
+      assert.equal(await page.locator(".sheet").count(), 0, `${viewport.width}px: menu still open`);
+      await page.goBack();
+      await page.waitForTimeout(500);
+      assert.equal(new URL(page.url()).pathname, "/impact", `${viewport.width}px: Back went to ${new URL(page.url()).pathname}`);
+      assert.equal(await page.locator(".sheet").count(), 0, `${viewport.width}px: Back reopened the menu`);
+    } finally {
+      await ctx.close();
+    }
+  }
+});
+
 await check("Election Day banner follows the local calendar date, not UTC", async () => {
   // 23:30 on Nov 3 in Los Angeles is already Nov 4 in UTC; 20:00 on Nov 2 is already Nov 3 in UTC.
   for (const [iso, expected] of [["2026-11-04T07:30:00Z", true], ["2026-11-03T04:00:00Z", false]]) {

@@ -83,8 +83,9 @@ export function MenuSheet({ onClose }: { onClose: () => void }) {
         </label>
 
         <Row icon={<IcoShield />} label="Privacy" onClick={() => setView("privacy")} />
-        <Row icon={<IcoInfo />} label="Trust / Sources" onClick={() => { onClose(); nav("/trust", { replace: true }); }} />
-        <Row icon={<IcoHeart />} label="Support 10·10·10" onClick={() => { onClose(); nav("/support", { replace: true }); }} />
+        {/* Replacing the menu's history entry closes it (see Sheet); closing first would pop that entry after this navigation. */}
+        <Row icon={<IcoInfo />} label="Trust / Sources" onClick={() => nav("/trust", { replace: true })} />
+        <Row icon={<IcoHeart />} label="Support 10·10·10" onClick={() => nav("/support", { replace: true })} />
         <Row icon={<IcoInfo />} label="About 10·10·10" onClick={() => setView("about")} />
 
         {session && (
