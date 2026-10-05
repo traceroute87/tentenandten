@@ -302,7 +302,8 @@ const memoryStorage = new MemoryStorage();
 Object.defineProperty(globalThis, "localStorage", { configurable: true, value: memoryStorage });
 Object.defineProperty(globalThis, "navigator", { configurable: true, value: { onLine: false } });
 const accountStore = await import("../src/store.ts");
-accountStore.completeAction("reach", "call"); // guest progress is deliberately adopted by first account
+accountStore.dismissInstall(); // device-level prompt state survives adoption
+accountStore.completeAction("reach", "call"); // guest progress moves to the first new account
 const guestCount = accountStore.totalActions(accountStore.getState());
 accountStore.activateAccount("account-A");
 assert.equal(accountStore.totalActions(accountStore.getState()), guestCount);
@@ -314,11 +315,13 @@ assert.equal(accountStore.startNewChallenge(), true);
 assert.equal(accountStore.getState().challengeCycle, 2);
 assert.equal(accountStore.totalActions(accountStore.getState()), 0);
 accountStore.activateGuest();
-assert.equal(accountStore.totalActions(accountStore.getState()), guestCount); // sign-out restores guest namespace
-accountStore.activateAccount("account-B"); // A -> logout -> B
-assert.equal(accountStore.totalActions(accountStore.getState()), 0);
+assert.equal(accountStore.totalActions(accountStore.getState()), 0); // adopted progress left guest mode
+assert.equal(accountStore.getState().flags.installDismissed, true);
+accountStore.completeAction("bring", "plan"); // later guest progress goes to the next new account
+accountStore.activateAccount("account-B"); // A -> logout -> B adopts only the new guest action
+assert.equal(accountStore.totalActions(accountStore.getState()), 1);
+assert.equal(accountStore.getState().challenge.bring.count, 1);
 assert.equal(accountStore.getState().challengeHistory.length, 0);
-accountStore.completeAction("spread", "share");
 accountStore.activateAccount("account-A"); // B -> A restores A's cycle/history
 assert.equal(accountStore.totalActions(accountStore.getState()), 0);
 assert.equal(accountStore.getState().challengeCycle, 2);
@@ -326,6 +329,17 @@ assert.equal(accountStore.getState().challengeHistory.length, 1);
 accountStore.activateAccount("account-B");
 assert.equal(accountStore.totalActions(accountStore.getState()), 1);
 assert.equal(accountStore.getState().challengeCycle, 1);
+accountStore.activateGuest();
+assert.equal(accountStore.totalActions(accountStore.getState()), 0);
+// A storage failure while adopting keeps the guest's progress and starts the account fresh.
+accountStore.completeAction("reach", "call");
+const realSetItem = memoryStorage.setItem.bind(memoryStorage);
+memoryStorage.setItem = (k: string, v: string) => { if (k.startsWith("t10.state.account.")) throw new Error("QuotaExceededError"); realSetItem(k, v); };
+accountStore.activateAccount("account-C");
+assert.equal(accountStore.totalActions(accountStore.getState()), 0);
+memoryStorage.setItem = realSetItem;
+accountStore.activateGuest();
+assert.equal(accountStore.totalActions(accountStore.getState()), 1);
 assert.equal(accountStore.getState().challengeHistory.length, 0);
 assert.ok(memoryStorage.getItem("t10.state.account.account-A"));
 assert.ok(memoryStorage.getItem("t10.state.account.account-B"));

@@ -360,6 +360,80 @@ await check("a rejected analytics event is dropped instead of blocking later eve
   } finally { await ctx.close(); }
 });
 
+const totals = (page) => page.evaluate(([a, b]) => {
+  const total = (key) => { const s = JSON.parse(localStorage.getItem(key) || "null"); return s ? s.challenge.reach.count + s.challenge.spread.count + s.challenge.bring.count : null; };
+  return { guest: total("t10.state.guest"), A: total(`t10.state.account.${a}`), B: total(`t10.state.account.${b}`), guestFlags: JSON.parse(localStorage.getItem("t10.state.guest") || "{}").flags ?? {} };
+}, [USER_ID, OTHER_ID]);
+const logActions = async (page, n) => {
+  await page.goto(BASE + "/challenge/reach", { waitUntil: "networkidle" });
+  for (let i = 0; i < n; i++) { await page.getByRole("button", { name: "Mark One Complete" }).click(); await page.waitForTimeout(80); }
+  await page.goto(BASE + "/?app=1", { waitUntil: "networkidle" });
+};
+const logOut = async (page, openMenu) => { await openMenu(); await page.getByText("Log Out").click(); await page.waitForTimeout(700); };
+
+await check("guest progress moves to each new account; guest is empty after sign-out; accounts stay separate", async () => {
+  const { ctx, page, openMenu } = await setup(); // guest starts with 1 action
+  try {
+    await page.evaluate(() => {
+      const s = JSON.parse(localStorage.getItem("t10.state.guest"));
+      localStorage.setItem("t10.state.guest", JSON.stringify({ ...s, flags: { ...s.flags, installDismissed: true } }));
+    });
+    await closeMenu(page);
+    await logActions(page, 4); // guest 5/30
+    assert.equal((await totals(page)).guest, 5);
+
+    await openMenu();
+    await signIn(page, EMAIL);
+    let t = await totals(page);
+    assert.equal(t.A, 5, "account A did not adopt 5/30");
+    assert.equal(t.guest, 0, "guest not cleared after adoption");
+    assert.equal(t.guestFlags.installDismissed, true, "device install flag lost");
+    assert.equal(t.guestFlags.stateSetupDismissed, true, "device state-setup flag lost");
+    await closeMenu(page);
+    await logOut(page, openMenu);
+    assert.ok(await page.getByText("0 / 30 actions completed").isVisible(), "guest Home not empty after sign-out");
+
+    await logActions(page, 3); // new guest progress 3/30
+    await openMenu();
+    await signIn(page, OTHER_EMAIL);
+    t = await totals(page);
+    assert.deepEqual([t.A, t.B, t.guest], [5, 3, 0], "B must get only the new guest progress, A unchanged, guest cleared");
+    await closeMenu(page);
+    await logOut(page, openMenu);
+    assert.equal((await totals(page)).guest, 0);
+
+    await openMenu();
+    await signIn(page, EMAIL); // existing account on this device: no adoption, still 5
+    t = await totals(page);
+    assert.deepEqual([t.A, t.B, t.guest], [5, 3, 0]);
+    await closeMenu(page);
+    assert.ok(await page.getByText("5 / 30 actions completed").isVisible(), "account A Home does not show its 5/30");
+  } finally { await ctx.close(); }
+});
+
+await check("if saving the account copy fails, guest progress is kept and nothing is adopted", async () => {
+  const { ctx, page, openMenu } = await setup();
+  try {
+    await closeMenu(page);
+    await logActions(page, 2); // guest 3/30
+    await page.evaluate(() => {
+      const real = Storage.prototype.setItem;
+      Storage.prototype.setItem = function (key, value) {
+        if (String(key).startsWith("t10.state.account.")) throw new DOMException("quota", "QuotaExceededError");
+        return real.call(this, key, value);
+      };
+    });
+    await openMenu();
+    await signIn(page, EMAIL);
+    const t = await totals(page);
+    assert.equal(t.guest, 3, "guest progress erased by a failed adoption");
+    assert.equal(t.A, null, "account copy should not exist in storage");
+    await closeMenu(page);
+    await logOut(page, openMenu);
+    assert.ok(await page.getByText("3 / 30 actions completed").isVisible(), "guest Home lost its progress");
+  } finally { await ctx.close(); }
+});
+
 await check("a failed reminder save keeps the local choice and is retried instead of reverting", async () => {
   const { ctx, page, reminderRows, failNextReminderWrite } = await setup();
   const r = reminders(page);

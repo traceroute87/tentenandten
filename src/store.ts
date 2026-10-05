@@ -54,7 +54,8 @@ const GUEST_KEY = "t10.state.guest";
 const LEGACY_KEY = "t10.state";
 const LEGACY_QUARANTINE_KEY = "t10.state.legacy-quarantine";
 const ACCOUNT_PREFIX = "t10.state.account.";
-const GUEST_ADOPTION_KEY = "t10.guest-adopted";
+// Pre-Option-A builds set a device-wide "t10.guest-adopted" flag; it is no longer read.
+const LEGACY_GUEST_ADOPTION_KEY = "t10.guest-adopted";
 const GOAL = 10;
 const memoryStates = new Map<string, State>();
 
@@ -76,6 +77,13 @@ function fresh(): State {
     referrals: { starts: 0, friendsStarted: 0 },
     flags: {},
   };
+}
+
+/** Empty guest state that keeps device-level prompts dismissed. */
+function freshGuest(previous: State): State {
+  const next = fresh();
+  next.flags = { installDismissed: previous.flags.installDismissed, stateSetupDismissed: previous.flags.stateSetupDismissed };
+  return next;
 }
 
 function load(key: string): State {
@@ -145,6 +153,7 @@ try {
     localStorage.setItem(LEGACY_QUARANTINE_KEY, localStorage.getItem(LEGACY_KEY)!);
     localStorage.removeItem(LEGACY_KEY);
   }
+  localStorage.removeItem(LEGACY_GUEST_ADOPTION_KEY);
 } catch { /* storage may be unavailable */ }
 let activeKey = GUEST_KEY;
 let activeAccountId: string | null = null;
@@ -176,15 +185,23 @@ export function activateAccount(userId: string) {
   let exists = memoryStates.has(key);
   try { exists ||= localStorage.getItem(key) !== null; } catch { /* isolated in-memory namespace */ }
   if (!exists) {
+    // A new account on this device takes over the guest's progress (moved, not copied), so
+    // guest mode starts fresh and later guest progress can go to the next new account.
+    // Guest data is reset only after the account copy is confirmed in storage; if storage
+    // fails the account starts fresh and the guest keeps everything.
+    const guest = loadNamespace(GUEST_KEY);
+    const copy = JSON.parse(JSON.stringify(guest)) as State;
     let adopted = false;
     try {
-      if (localStorage.getItem(GUEST_ADOPTION_KEY) !== "1") {
-        saveNamespace(key, JSON.parse(JSON.stringify(loadNamespace(GUEST_KEY))) as State);
-        localStorage.setItem(GUEST_ADOPTION_KEY, "1");
-        adopted = true;
-      }
-    } catch { /* do not adopt an ambiguous namespace without storage */ }
-    if (!adopted) saveNamespace(key, fresh());
+      localStorage.setItem(key, JSON.stringify(copy));
+      adopted = localStorage.getItem(key) !== null;
+    } catch { /* do not adopt into a namespace that could not be saved */ }
+    if (adopted) {
+      memoryStates.set(key, copy);
+      saveNamespace(GUEST_KEY, freshGuest(guest));
+    } else {
+      saveNamespace(key, fresh());
+    }
   }
   activeKey = key;
   activeAccountId = userId;
