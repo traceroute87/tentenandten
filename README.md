@@ -9,7 +9,7 @@ other people voting.
 
 - Vite + React + TypeScript
 - `vite-plugin-pwa` (installable, offline-safe local progress)
-- Supabase — Auth (magic link), Postgres (profiles / progress / referrals),
+- Supabase — Auth (email one-time code), Postgres (profiles / progress / referrals),
   RLS on from the first migration
 - Local-first: guests use the app fully; `localStorage` is the offline source of
   truth. Creating an account merges local progress up (max-wins) and mirrors

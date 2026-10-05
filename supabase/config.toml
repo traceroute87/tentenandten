@@ -5,7 +5,8 @@ project_id = "ten-ten-ten"
 
 [auth]
 enable_signup = true
-# Magic-link only; no passwords in V1.
+# Email one-time code only; no passwords in V1. The Magic Link and Confirm signup email
+# templates must include {{ .Token }} (the code) for sign-in to work.
 [auth.email]
 enable_signup = true
 enable_confirmations = false

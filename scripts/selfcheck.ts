@@ -12,6 +12,7 @@ import { allDayDateRange, calendarActions, calendarPlatform, electionCalendar, e
 import { installMode, isIOSSafari, IOS_INSTALL_STEPS, requestNativeInstall } from "../src/lib/install.ts";
 import { validAnalyticsEvent } from "../src/lib/analytics-schema.ts";
 import { sheetStack, stateWithSheetStack } from "../src/lib/sheet-history.ts";
+import { normalizeOtp, otpErrorMessage } from "../src/lib/otp.ts";
 
 // Sheets add same-route history entries and unwind only the top nested sheet.
 const routeState = { returnTo: "impact" };
@@ -184,6 +185,16 @@ assert.equal(reloadedHistory[0].completedAt, completedCycle.completedAt);
   // Never fabricates a completion that local history does not hold.
   await assert.rejects(catchUpServerCycle(local, 1, [], async () => {}, async () => {}), /missing from local history/);
 }
+
+// Email codes: pasted codes keep digits only; errors stay neutral and never reveal accounts.
+assert.equal(normalizeOtp(" 123 456 "), "123456");
+assert.equal(normalizeOtp("Code: 98-76-54"), "987654");
+assert.equal(normalizeOtp("12345678901234"), "1234567890");
+assert.equal(otpErrorMessage({ name: "AuthApiError", status: 403, code: "otp_expired" }, "verify"), "That code is invalid or has expired.");
+assert.equal(otpErrorMessage({ name: "AuthApiError", status: 422, message: "Signups not allowed for otp" }, "send"), "Couldn't send a code. Check the email address and try again.");
+assert.equal(otpErrorMessage({ name: "AuthApiError", status: 429 }, "send"), "Too many attempts. Wait a minute, then try again.");
+assert.equal(otpErrorMessage({ name: "AuthRetryableFetchError", status: 0 }, "verify"), "Couldn't reach the server. Check your connection and try again.");
+assert.equal(otpErrorMessage(new TypeError("Failed to fetch"), "send"), "Couldn't reach the server. Check your connection and try again.");
 
 // Diagnostics include the requested fields but redact identity-like values.
 const diagnostic = safeSyncError({ code: "42501", message: "permission denied for user@example.com", details: "referrer 12345678-1234-1234-1234-123456789abc", hint: "QWERTY", status: 403 });
