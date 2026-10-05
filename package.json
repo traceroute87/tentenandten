@@ -10,6 +10,7 @@
     "icons": "node scripts/gen-icons.mjs",
     "test": "node --experimental-strip-types scripts/selfcheck.ts",
     "test:e2e": "node e2e/overlay-stability.mjs",
+    "test:sw": "node e2e/sw-update.mjs",
     "resources:audit": "node --experimental-strip-types scripts/export-resource-audit.ts",
     "resources:validate": "node --experimental-strip-types scripts/audit-election-resources.ts",
     "hero": "node scripts/gen-hero.mjs"
