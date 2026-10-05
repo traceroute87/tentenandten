@@ -1,12 +1,12 @@
 import { useEffect, useState } from "react";
-import { TIMELINE, STATES, NATIONAL } from "../data";
+import { TIMELINE, STATES, NATIONAL, localCalendarDate } from "../data";
 import { useStore, setReminders, setOwnState, getActiveAccountId } from "../store";
 import { useAuth } from "../auth";
 import { supabase } from "../lib/supabase";
 import { logSyncFailure } from "../lib/sync-diagnostics";
 import { IcoCalendar } from "../lib/icons";
 
-const today = () => new Date().toISOString().slice(0, 10);
+const today = () => localCalendarDate();
 const daysApart = (a: string, b: string) =>
   Math.round((Date.parse(a) - Date.parse(b)) / 86_400_000);
 

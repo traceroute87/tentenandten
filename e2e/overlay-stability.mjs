@@ -127,6 +127,22 @@ await check("Challenge tabs: switching Reach/Share/Bring does not remount or re-
   }
 });
 
+await check("Election Day banner follows the local calendar date, not UTC", async () => {
+  // 23:30 on Nov 3 in Los Angeles is already Nov 4 in UTC; 20:00 on Nov 2 is already Nov 3 in UTC.
+  for (const [iso, expected] of [["2026-11-04T07:30:00Z", true], ["2026-11-03T04:00:00Z", false]]) {
+    const ctx = await browser.newContext({ viewport: { width: 390, height: 844 }, timezoneId: "America/Los_Angeles" });
+    try {
+      const page = await ctx.newPage();
+      await page.clock.setFixedTime(new Date(iso));
+      await page.goto(BASE + "/?app=1", { waitUntil: "networkidle" });
+      const shown = await page.getByText("Today's the day.").count() > 0;
+      assert.equal(shown, expected, `${iso} in Los Angeles: banner ${shown ? "shown" : "hidden"}`);
+    } finally {
+      await ctx.close();
+    }
+  }
+});
+
 await browser.close();
 if (failures.length) {
   console.log(`\n${failures.length} overlay stability check(s) failed against ${BASE}`);

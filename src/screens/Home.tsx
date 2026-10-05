@@ -10,7 +10,7 @@ import { HeroPicture } from "../components/HeroPicture";
 import { IcoChat, IcoMail, IcoUsers, IcoCheck, IcoChevron, IcoWarn, IcoCalendar } from "../lib/icons";
 import { ChallengeHistoryList } from "./ChallengeHistory";
 
-const isElectionDay = () => new Date().toISOString().slice(0, 10) === ELECTION_DAY;
+const isElectionDay = () => localCalendarDate() === ELECTION_DAY;
 
 const QUICK = [
   { icon: <IcoChat />, title: "Call or Text Someone", sub: "Reach 10 people you know", to: "/challenge/reach" },

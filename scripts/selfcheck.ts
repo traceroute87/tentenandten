@@ -3,7 +3,7 @@
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import { mergeProgress } from "../src/lib/merge.ts";
-import { mergeBeforeWrite, persistProgressAndArchive } from "../src/lib/sync.ts";
+import { catchUpServerCycle, mergeBeforeWrite, persistProgressAndArchive } from "../src/lib/sync.ts";
 import { safeSyncError } from "../src/lib/sync-diagnostics.ts";
 import { archiveCompletedCycle, completionTimestampFromActionLogs, historyFromLocal, historyFromRemote, historyToRemote, mergeChallengeCycles, mergeChallengeHistory, newChallengeCycle, normalizeElectionContext, sortChallengeHistory } from "../src/lib/challenge-cycles.ts";
 import { MESSAGE_PRESETS, renderMessageTemplate } from "../src/data/messagePresets.ts";
@@ -131,6 +131,59 @@ const reloadedHistory = mergeChallengeHistory([], historyFromRemote(serverHistor
 assert.deepEqual(completedSyncOrder, ["progress-write", "archive-rpc"]);
 assert.equal(reloadedHistory.length, 1); // archive appears in app_snapshot and survives merge
 assert.equal(reloadedHistory[0].completedAt, completedCycle.completedAt);
+
+// Cycles finished while the server was behind sync through the server's cycle guard
+// (mirrors guard_progress_cycle + archive_completed_challenge) instead of failing forever.
+{
+  type Row = { challenge_cycle: number; reach: number; spread: number; bring: number; challenge_started_at: string | null; challenge_completed_at: string | null; election_id: string | null; election_name: string | null; election_date: string | null; election_type: string | null; jurisdiction: string | null };
+  const fakeServer = (initial: Row | null) => {
+    let row = initial;
+    const archived = new Set<number>();
+    return {
+      archived,
+      get row() { return row; },
+      async write(next: Row) {
+        if (!row || next.challenge_cycle < row.challenge_cycle) { row = row ?? { ...next }; return; }
+        if (next.challenge_cycle === row.challenge_cycle) {
+          row = { ...row, reach: Math.max(row.reach, next.reach), spread: Math.max(row.spread, next.spread), bring: Math.max(row.bring, next.bring) };
+          return;
+        }
+        if (next.challenge_cycle !== row.challenge_cycle + 1 || row.reach < 10 || row.spread < 10 || row.bring < 10
+          || !archived.has(row.challenge_cycle) || next.reach || next.spread || next.bring) throw new Error("new challenge cycle is not available");
+        row = { ...next };
+      },
+      async archive() {
+        if (!row) throw new Error("current progress unavailable");
+        if (row.reach < 10 || row.spread < 10 || row.bring < 10) throw new Error("challenge is incomplete");
+        archived.add(row.challenge_cycle);
+      },
+    };
+  };
+  const doneCycle = (challengeCycle: number) => archiveCompletedCycle([], { challengeCycle, startedAt: "2026-10-01T00:00:00.000Z", completedAt: "2026-10-02T00:00:00.000Z", electionContext: null, reach: 10, spread: 10, bring: 10 })[0];
+  const local: Row = { challenge_cycle: 2, reach: 1, spread: 0, bring: 0, challenge_started_at: "2026-10-03T00:00:00.000Z", challenge_completed_at: null, election_id: null, election_name: null, election_date: null, election_type: null, jurisdiction: null };
+  const sync = async (server: ReturnType<typeof fakeServer>, progress: Row, serverCycle: number, history: ReturnType<typeof doneCycle>[]) => {
+    await catchUpServerCycle(progress, serverCycle, history, (r) => server.write(r), () => server.archive());
+    await persistProgressAndArchive(progress, () => server.write(progress), () => server.archive());
+  };
+  // Last actions of cycle 1 offline, new cycle started and used before reconnecting.
+  const behind = fakeServer({ ...local, challenge_cycle: 1, reach: 10, spread: 10, bring: 5, challenge_started_at: null });
+  await sync(behind, local, 1, [doneCycle(1)]);
+  assert.deepEqual([behind.row!.challenge_cycle, behind.row!.reach, behind.row!.spread, behind.row!.bring], [2, 1, 0, 0]);
+  assert.ok(behind.archived.has(1));
+  // The pre-fix sequence (archive, then write current counts) is rejected by the same server.
+  const legacy = fakeServer({ ...local, challenge_cycle: 1, reach: 10, spread: 10, bring: 5 });
+  await assert.rejects(legacy.archive(), /incomplete/);
+  // Completed and synced online, then a new-cycle action before the next sync.
+  const synced = fakeServer({ ...local, challenge_cycle: 1, reach: 10, spread: 10, bring: 10 });
+  await sync(synced, local, 1, [doneCycle(1)]);
+  assert.deepEqual([synced.row!.challenge_cycle, synced.row!.reach], [2, 1]);
+  // Guest finished cycles 1 and 2, then signed up: no server row yet.
+  const fresh = fakeServer(null);
+  await sync(fresh, { ...local, challenge_cycle: 3 }, 1, [doneCycle(1), doneCycle(2)]);
+  assert.deepEqual([fresh.row!.challenge_cycle, fresh.row!.reach, [...fresh.archived].sort().join()], [3, 1, "1,2"]);
+  // Never fabricates a completion that local history does not hold.
+  await assert.rejects(catchUpServerCycle(local, 1, [], async () => {}, async () => {}), /missing from local history/);
+}
 
 // Diagnostics include the requested fields but redact identity-like values.
 const diagnostic = safeSyncError({ code: "42501", message: "permission denied for user@example.com", details: "referrer 12345678-1234-1234-1234-123456789abc", hint: "QWERTY", status: 403 });
