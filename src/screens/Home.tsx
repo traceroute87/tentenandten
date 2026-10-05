@@ -274,7 +274,8 @@ export default function Home() {
               if (setChallengeElectionContext(context)) {
                 setNewChallengeOpen(false);
                 setContextOptionsOpen(false);
-                nav(`/challenge/${nextTrack(s)}`);
+                // Replace the sheet's history entry so Back from the challenge returns to Home.
+                nav(`/challenge/${nextTrack(s)}`, { replace: true });
               }
             }}>Start Challenge</Button>}
             <Button block variant="ghost" onClick={() => { setNewChallengeOpen(false); setContextOptionsOpen(false); }}>Cancel</Button>

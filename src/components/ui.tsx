@@ -178,7 +178,10 @@ export function Sheet({
   closeRef.current = onClose;
   useLayoutEffect(() => {
     const stack = sheetStack(location.state);
-    const isTop = stack.at(-1) === id;
+    // Pop only while the browser is still on this sheet's entry. A navigation made in the
+    // same click as the close (e.g. Start Challenge) has already pushed/replaced the entry,
+    // but React Router applies it in a transition, so `location` can still be stale here.
+    const isTop = stack.at(-1) === id && sheetStack((window.history.state as { usr?: unknown } | null)?.usr).at(-1) === id;
     if (stack.includes(id)) awaitingHistoryEntry.current = false;
 
     if (open && !wasOpen.current) {
