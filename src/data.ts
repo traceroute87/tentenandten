@@ -1060,10 +1060,17 @@ export const HELP_NEEDS: { id: string; label: string; icon: string; source: keyo
 ];
 
 /* ---------- 2026 timeline (generic; state deadlines vary) ---------- */
-export type Milestone = { id: string; date: string; label: string; urgent?: boolean };
+/** In-app Home reminders. Each shows only between showFrom and showUntil (inclusive local
+    calendar dates). Listed most urgent first: the first one that qualifies wins. */
+export type Milestone = { id: string; showFrom: string; showUntil: string; label: string; urgent?: boolean };
 export const TIMELINE: Milestone[] = [
-  { id: "reg-soon", date: "2026-10-05", label: "Registration deadlines are approaching in many states" },
-  { id: "early", date: "2026-10-20", label: "Early voting is starting in many states" },
-  { id: "eve", date: "2026-11-02", label: "Election Day is tomorrow — finalize your plan", urgent: true },
-  { id: "day", date: "2026-11-03", label: "Today is Election Day", urgent: true },
+  { id: "day", showFrom: "2026-11-03", showUntil: "2026-11-03", label: "Today is Election Day", urgent: true },
+  { id: "eve", showFrom: "2026-11-02", showUntil: "2026-11-02", label: "Election Day is tomorrow — finalize your plan", urgent: true },
+  // Broad windows: start dates vary by state, so these never name a single national date.
+  { id: "early", showFrom: "2026-10-10", showUntil: "2026-10-23", label: "Early voting is starting in many states" },
+  { id: "reg-soon", showFrom: "2026-09-25", showUntil: "2026-10-08", label: "Registration deadlines are approaching in many states" },
 ];
+
+export function activeMilestone(today = localCalendarDate()): Milestone | null {
+  return TIMELINE.find((m) => m.showFrom <= today && today <= m.showUntil) ?? null;
+}

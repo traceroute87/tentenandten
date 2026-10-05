@@ -35,8 +35,8 @@ async function check(name, fn) {
 }
 
 /** Opens the app with Supabase mocked; `calls` records every Supabase request by route. */
-async function setup(viewport = { width: 1280, height: 900 }) {
-  const ctx = await browser.newContext({ viewport, isMobile: viewport.width < 900, hasTouch: viewport.width < 900 });
+async function setup(viewport = { width: 1280, height: 900 }, { now } = {}) {
+  const ctx = await browser.newContext({ viewport, isMobile: viewport.width < 900, hasTouch: viewport.width < 900, timezoneId: "America/Chicago" });
   const calls = { otp: [], verify: [], user: 0, logout: 0, snapshot: 0, progress: [], reminderWrites: [], other: [] };
   // reminder_prefs mirrors the live table: a row per account created at signup, and
   // UPDATE granted only on (enabled, state), so an upsert on that row is rejected.
@@ -93,9 +93,15 @@ async function setup(viewport = { width: 1280, height: 900 }) {
     if (localStorage.getItem("t10.state.guest")) return;
     localStorage.setItem("t10.state.guest", JSON.stringify({ version: 2, profile: { createdAt: Date.now() }, challenge: { reach: { count: 1, log: [{ ts: Date.now(), kind: "manual" }] }, spread: { count: 0, log: [] }, bring: { count: 0, log: [] } }, challengeCycle: 1, challengeStartedAt: new Date().toISOString(), flags: { stateSetupDismissed: true } }));
   });
+  // Any notification permission request is recorded (reminders must never ask).
+  await ctx.addInitScript(() => {
+    window.__notificationRequests = 0;
+    if (window.Notification) window.Notification.requestPermission = async () => { window.__notificationRequests++; return "default"; };
+  });
   const page = await ctx.newPage();
   page.setDefaultTimeout(6000);
-  await page.goto(BASE + "/?app=1", { waitUntil: "networkidle" });
+  if (now) await page.clock.setFixedTime(new Date(now));
+  await page.goto(BASE + "/?app=1", { waitUntil: "networkidle", timeout: 30000 });
   const openMenu = async () => { await page.getByLabel("Menu").locator("visible=true").first().click(); await page.waitForTimeout(300); };
   await openMenu();
   return { ctx, page, calls, openMenu, reminderRows, failNextReminderWrite };
@@ -262,6 +268,59 @@ await check("guest reminders persist through close/reopen and reload, and unchec
     await page.reload({ waitUntil: "networkidle" });
     await r.open();
     assert.equal(await r.box().isChecked(), false, "uncheck lost after reload");
+  } finally { await ctx.close(); }
+});
+
+const homeReminder = (page) => page.evaluate(() => [...document.querySelectorAll(".reminder")].map((el) => el.querySelector("b")?.textContent ?? el.textContent).filter((t) => !t.startsWith("Today's the day")));
+
+await check("Home reminder banner follows per-reminder local dates (Chicago time, mid-afternoon)", async () => {
+  const expected = [
+    ["2026-10-05", "Registration deadlines are approaching in many states."],
+    ["2026-10-15", "Early voting is starting in many states."],
+    ["2026-10-23", "Early voting is starting in many states."],
+    ["2026-10-24", null],
+    ["2026-11-02", "Election Day is tomorrow — finalize your plan."],
+    ["2026-11-03", "Today is Election Day."],
+    ["2026-11-04", null],
+    ["2026-11-06", null],
+  ];
+  for (const [day, label] of expected) {
+    const { ctx, page } = await setup({ width: 390, height: 844 }, { now: `${day}T15:00:00-05:00` });
+    try {
+      await page.evaluate(() => {
+        const s = JSON.parse(localStorage.getItem("t10.state.guest"));
+        localStorage.setItem("t10.state.guest", JSON.stringify({ ...s, reminders: { enabled: true } }));
+      });
+      await page.reload({ waitUntil: "networkidle" });
+      assert.deepEqual(await homeReminder(page), label ? [label] : [], `${day}`);
+    } finally { await ctx.close(); }
+  }
+});
+
+await check("enabling shows the banner on Home at once, disabling hides it, no banner elsewhere, no notification prompt", async () => {
+  const { ctx, page } = await setup({ width: 1280, height: 900 }, { now: "2026-10-15T15:00:00-05:00" });
+  const r = reminders(page);
+  try {
+    await closeMenu(page);
+    assert.deepEqual(await homeReminder(page), []);
+    await r.open();
+    const dialog = await page.locator(".sheet").innerText();
+    assert.ok(dialog.includes("Show election reminders on Home"), "toggle wording");
+    assert.ok(!/no spam|nudges/i.test(dialog), "dialog still implies sent notifications");
+    assert.equal(await page.locator(".sheet select").count(), 0, "state dropdown still in Reminders");
+    await r.box().check();
+    await r.close();
+    assert.deepEqual(await homeReminder(page), ["Early voting is starting in many states."]);
+    for (const path of ["/challenge/reach", "/voting", "/impact"]) {
+      await page.goto(BASE + path, { waitUntil: "networkidle" });
+      assert.equal(await page.locator(".reminder").count(), 0, `banner shown on ${path}`);
+    }
+    await page.goto(BASE + "/?app=1", { waitUntil: "networkidle" });
+    await r.open();
+    await r.box().uncheck();
+    await r.close();
+    assert.deepEqual(await homeReminder(page), [], "banner still shown after disabling");
+    assert.equal(await page.evaluate(() => window.__notificationRequests), 0, "notification permission requested");
   } finally { await ctx.close(); }
 });
 
