@@ -324,6 +324,42 @@ await check("enabling shows the banner on Home at once, disabling hides it, no b
   } finally { await ctx.close(); }
 });
 
+await check("an expired sign-in link shows a neutral notice once and cleans the URL", async () => {
+  const { ctx, page } = await setup();
+  try {
+    await page.goto("about:blank"); // a link from an email is a fresh page load
+    await page.goto(BASE + "/?app=1#error=access_denied&error_code=otp_expired&error_description=Email+link+is+invalid+or+has+expired", { waitUntil: "networkidle" });
+    const notice = page.getByRole("alert").filter({ hasText: "sign-in link" });
+    await notice.waitFor();
+    assert.equal(await notice.innerText().then((t) => t.includes("That sign-in link is invalid or has expired.")), true);
+    assert.equal(new URL(page.url()).hash, "", "error params left in the URL");
+    assert.equal(new URL(page.url()).search, "?app=1");
+    await notice.getByRole("button", { name: "OK" }).click();
+    assert.equal(await notice.count(), 0, "notice not dismissed");
+    await page.reload({ waitUntil: "networkidle" });
+    assert.equal(await page.getByRole("alert").filter({ hasText: "sign-in link" }).count(), 0, "notice came back after reload");
+  } finally { await ctx.close(); }
+});
+
+await check("a rejected analytics event is dropped instead of blocking later events", async () => {
+  const { ctx, page, calls } = await setup();
+  try {
+    await page.route(/rpc\/record_analytics_event/, async (route) => {
+      const body = route.request().postDataJSON();
+      calls.other.push(`analytics ${body.p_event}`);
+      return body.p_event === "action_completed"
+        ? route.fulfill({ status: 404, contentType: "application/json", body: JSON.stringify({ code: "42883" }) })
+        : route.fulfill({ status: 204 });
+    });
+    await page.goto(BASE + "/challenge/reach", { waitUntil: "networkidle" });
+    for (let i = 0; i < 3; i++) { await page.getByRole("button", { name: "Mark One Complete" }).click(); await page.waitForTimeout(300); }
+    await page.waitForTimeout(800);
+    const queue = await page.evaluate(() => JSON.parse(localStorage.getItem("t10.analytics.queue") || "[]"));
+    assert.equal(queue.length, 0, `queue stuck with ${queue.map((e) => e.event).join(", ")}`);
+    assert.ok(calls.other.filter((c) => c === "analytics action_completed").length >= 3, "later events were not attempted");
+  } finally { await ctx.close(); }
+});
+
 await check("a failed reminder save keeps the local choice and is retried instead of reverting", async () => {
   const { ctx, page, reminderRows, failNextReminderWrite } = await setup();
   const r = reminders(page);

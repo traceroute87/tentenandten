@@ -25,7 +25,7 @@ import {
 import { track } from "./analytics";
 import { catchUpServerCycle, mergeBeforeWrite, persistProgressAndArchive } from "./lib/sync";
 import { logSyncFailure } from "./lib/sync-diagnostics";
-import { otpErrorMessage } from "./lib/otp";
+import { AUTH_LINK_ERROR, otpErrorMessage, stripAuthCallbackError } from "./lib/otp";
 
 type AuthState = {
   configured: boolean;
@@ -33,6 +33,8 @@ type AuthState = {
   ready: boolean;
   syncError: string;
   retrySync: () => void;
+  authNotice: string;
+  dismissAuthNotice: () => void;
   requestCode: (email: string) => Promise<{ ok: boolean; error?: string }>;
   verifyCode: (email: string, code: string) => Promise<{ ok: boolean; error?: string }>;
   signOut: () => Promise<void>;
@@ -44,6 +46,8 @@ const Ctx = createContext<AuthState>({
   ready: true,
   syncError: "",
   retrySync: () => {},
+  authNotice: "",
+  dismissAuthNotice: () => {},
   requestCode: async () => ({ ok: false, error: "Backend not configured" }),
   verifyCode: async () => ({ ok: false, error: "Backend not configured" }),
   signOut: async () => {},
@@ -109,6 +113,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [ready, setReady] = useState(!backendConfigured);
   const [syncReady, setSyncReady] = useState(!backendConfigured);
   const [syncError, setSyncError] = useState("");
+  // An expired or reused sign-in link: say so once and clean the URL.
+  const [authNotice, setAuthNotice] = useState(() => {
+    if (typeof window === "undefined") return "";
+    const clean = stripAuthCallbackError(window.location.href);
+    if (clean === null) return "";
+    window.history.replaceState(window.history.state, "", clean);
+    return AUTH_LINK_ERROR;
+  });
   const linkedRef = useRef(false);
   const startedRef = useRef(false);
   const pushSigRef = useRef("");
@@ -293,6 +305,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     session,
     ready,
     syncError,
+    authNotice,
+    dismissAuthNotice: () => setAuthNotice(""),
     retrySync: () => {
       const current = sessionRef.current;
       if (current) void syncAccount(current).catch(() => {});

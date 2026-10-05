@@ -12,7 +12,8 @@ import { allDayDateRange, calendarActions, calendarPlatform, electionCalendar, e
 import { installMode, isIOSSafari, IOS_INSTALL_STEPS, requestNativeInstall } from "../src/lib/install.ts";
 import { validAnalyticsEvent } from "../src/lib/analytics-schema.ts";
 import { sheetStack, stateWithSheetStack } from "../src/lib/sheet-history.ts";
-import { normalizeOtp, otpErrorMessage } from "../src/lib/otp.ts";
+import { normalizeOtp, otpErrorMessage, stripAuthCallbackError } from "../src/lib/otp.ts";
+import { deliverQueue, type Event as AnalyticsEvent } from "../src/analytics.ts";
 
 // Sheets add same-route history entries and unwind only the top nested sheet.
 const routeState = { returnTo: "impact" };
@@ -209,6 +210,33 @@ assert.equal(reminderOn("2026-11-03"), "day");
 assert.equal(activeMilestone("2026-11-03")?.label, "Today is Election Day");
 for (const after of ["2026-11-04", "2026-11-06", "2027-01-01"]) assert.equal(reminderOn(after), null, after);
 assert.equal(reminderOn("2026-09-24"), null);
+
+// Analytics delivery: a rejected event is dropped instead of blocking the queue; transient
+// failures stop the run and keep the rest; events before a network error count as sent.
+{
+  const ev = (event: string, props?: Record<string, unknown>): AnalyticsEvent => ({ session_id: "anon", event, props, ts: `${event}-${JSON.stringify(props)}` });
+  const visited = ev("visited");
+  const action = ev("action_completed", { track: "reach", kind: "manual", n: 1 });
+  const share = ev("share", { channel: "copy" });
+  const statuses = (map: Record<string, number | "throw">) => async (e: AnalyticsEvent) => {
+    const r = map[e.event] ?? 204;
+    if (r === "throw") throw new TypeError("Failed to fetch");
+    return r;
+  };
+  assert.deepEqual(await deliverQueue([action, visited, share], statuses({ action_completed: 404 })), [action, visited, share]);
+  assert.deepEqual(await deliverQueue([action, visited, share], statuses({ action_completed: 400 })), [action, visited, share]);
+  assert.deepEqual(await deliverQueue([visited, action, share], statuses({ action_completed: 503 })), [visited]);
+  assert.deepEqual(await deliverQueue([visited, action, share], statuses({ action_completed: 429 })), [visited]);
+  assert.deepEqual(await deliverQueue([visited, action, share], statuses({ action_completed: 0 })), [visited]);
+  assert.deepEqual(await deliverQueue([visited, action, share], statuses({ action_completed: "throw" })), [visited]);
+  assert.deepEqual(await deliverQueue([ev("not_allowed"), visited], statuses({})), [ev("not_allowed"), visited]); // never sent
+}
+
+// Failed sign-in link callbacks are recognised and their error params removed; others are untouched.
+assert.equal(stripAuthCallbackError("https://x.test/?app=1#error=access_denied&error_code=otp_expired&error_description=Email+link+is+invalid+or+has+expired"), "https://x.test/?app=1");
+assert.equal(stripAuthCallbackError("https://x.test/?error=server_error&error_description=Bad&r=ABCDEF"), "https://x.test/?r=ABCDEF");
+assert.equal(stripAuthCallbackError("https://x.test/?app=1#how"), null);
+assert.equal(stripAuthCallbackError("https://x.test/#access_token=abc&type=magiclink"), null);
 
 // Diagnostics include the requested fields but redact identity-like values.
 const diagnostic = safeSyncError({ code: "42501", message: "permission denied for user@example.com", details: "referrer 12345678-1234-1234-1234-123456789abc", hint: "QWERTY", status: 403 });

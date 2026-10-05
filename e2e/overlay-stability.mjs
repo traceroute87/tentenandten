@@ -193,6 +193,34 @@ await check("Menu links close the menu and open their page; Back returns to the 
   }
 });
 
+await check("Forward after closing a dialog with Back, or a reload with it open, leaves no dead history step", async () => {
+  const { ctx, page } = await openPage({ width: 1280, height: 900 }, "/voting");
+  try {
+    await page.goto(BASE + "/impact", { waitUntil: "networkidle" });
+    await page.getByRole("button", { name: "Share My Progress" }).click();
+    await page.waitForTimeout(300);
+    await page.goBack();
+    await page.waitForTimeout(400);
+    await page.goForward();
+    await page.waitForTimeout(600);
+    assert.equal(await page.locator(".sheet").count(), 0, "Forward reopened or left a dialog");
+    assert.equal(await page.evaluate(() => history.state?.usr?.__tenTenTenSheetStack ?? null), null, "Forward left a stale dialog entry");
+    await page.goBack();
+    await page.waitForTimeout(600);
+    assert.equal(new URL(page.url()).pathname, "/voting", `Back after Forward stayed on ${new URL(page.url()).pathname}`);
+
+    await page.goto(BASE + "/impact", { waitUntil: "networkidle" });
+    await page.getByRole("button", { name: "Share My Progress" }).click();
+    await page.waitForTimeout(300);
+    await page.reload({ waitUntil: "networkidle" });
+    await page.waitForTimeout(600);
+    assert.equal(await page.evaluate(() => history.state?.usr?.__tenTenTenSheetStack ?? null), null, "reload kept a stale dialog entry");
+    assert.equal(new URL(page.url()).pathname, "/impact");
+  } finally {
+    await ctx.close();
+  }
+});
+
 await check("Election Day banner follows the local calendar date, not UTC", async () => {
   // 23:30 on Nov 3 in Los Angeles is already Nov 4 in UTC; 20:00 on Nov 2 is already Nov 3 in UTC.
   for (const [iso, expected] of [["2026-11-04T07:30:00Z", true], ["2026-11-03T04:00:00Z", false]]) {

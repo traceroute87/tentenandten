@@ -1061,7 +1061,9 @@ export const HELP_NEEDS: { id: string; label: string; icon: string; source: keyo
 
 /* ---------- 2026 timeline (generic; state deadlines vary) ---------- */
 /** In-app Home reminders. Each shows only between showFrom and showUntil (inclusive local
-    calendar dates). Listed most urgent first: the first one that qualifies wins. */
+    calendar dates). Listed most urgent first: the first one that qualifies wins.
+    Covers the 2026 general election only; after 2026-11-03 no reminder shows until new
+    entries are added here (e.g. for 2028-11-07 from UPCOMING_ELECTIONS). */
 export type Milestone = { id: string; showFrom: string; showUntil: string; label: string; urgent?: boolean };
 export const TIMELINE: Milestone[] = [
   { id: "day", showFrom: "2026-11-03", showUntil: "2026-11-03", label: "Today is Election Day", urgent: true },

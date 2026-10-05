@@ -1,5 +1,5 @@
 import { createContext, useContext, useState, type ReactNode } from "react";
-import { Sheet } from "./components/ui";
+import { Sheet, useDiscardStaleSheetEntries } from "./components/ui";
 import { MenuSheet } from "./screens/Menu";
 import { RemindersSheet } from "./screens/Reminders";
 
@@ -11,6 +11,7 @@ export const useChrome = () => useContext(Ctx);
 export function ChromeProvider({ children }: { children: ReactNode }) {
   const [menu, setMenu] = useState(false);
   const [reminders, setReminders] = useState(false);
+  useDiscardStaleSheetEntries();
 
   return (
     <Ctx.Provider value={{ openMenu: () => setMenu(true), openReminders: () => setReminders(true) }}>
