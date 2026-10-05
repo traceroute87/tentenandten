@@ -7,11 +7,12 @@ import { catchUpServerCycle, mergeBeforeWrite, persistProgressAndArchive } from 
 import { safeSyncError } from "../src/lib/sync-diagnostics.ts";
 import { archiveCompletedCycle, completionTimestampFromActionLogs, historyFromLocal, historyFromRemote, historyToRemote, mergeChallengeCycles, mergeChallengeHistory, newChallengeCycle, normalizeElectionContext, sortChallengeHistory } from "../src/lib/challenge-cycles.ts";
 import { MESSAGE_PRESETS, renderMessageTemplate } from "../src/data/messagePresets.ts";
-import { ELECTION_TYPE_LABELS, NATIONAL_VOTING_RESOURCES, RESOURCE_TYPES, STATES, STATE_ELECTION_OFFICE, STATE_ELECTION_RESOURCES, STATE_RESOURCES, UPCOMING_ELECTIONS, electionCardData, electionStatus, localCalendarDate, messageResourceType, nextKnownElection, votingResource } from "../src/data.ts";
+import { ELECTION_TYPE_LABELS, NATIONAL_VOTING_RESOURCES, RESOURCE_TYPES, STATES, STATE_ELECTION_OFFICE, STATE_ELECTION_RESOURCES, STATE_RESOURCES, UPCOMING_ELECTIONS, electionCardData, electionStatus, localCalendarDate, activeMilestone, messageResourceType, nextKnownElection, votingResource } from "../src/data.ts";
 import { allDayDateRange, calendarActions, calendarPlatform, electionCalendar, electionDescription, googleCalendarUrl } from "../src/lib/calendar.ts";
 import { installMode, isIOSSafari, IOS_INSTALL_STEPS, requestNativeInstall } from "../src/lib/install.ts";
 import { validAnalyticsEvent } from "../src/lib/analytics-schema.ts";
 import { sheetStack, stateWithSheetStack } from "../src/lib/sheet-history.ts";
+import { normalizeOtp, otpErrorMessage } from "../src/lib/otp.ts";
 
 // Sheets add same-route history entries and unwind only the top nested sheet.
 const routeState = { returnTo: "impact" };
@@ -184,6 +185,30 @@ assert.equal(reloadedHistory[0].completedAt, completedCycle.completedAt);
   // Never fabricates a completion that local history does not hold.
   await assert.rejects(catchUpServerCycle(local, 1, [], async () => {}, async () => {}), /missing from local history/);
 }
+
+// Email codes: pasted codes keep digits only; errors stay neutral and never reveal accounts.
+assert.equal(normalizeOtp(" 123 456 "), "123456");
+assert.equal(normalizeOtp("Code: 98-76-54"), "987654");
+assert.equal(normalizeOtp("12345678901234"), "1234567890");
+assert.equal(otpErrorMessage({ name: "AuthApiError", status: 403, code: "otp_expired" }, "verify"), "That code is invalid or has expired.");
+assert.equal(otpErrorMessage({ name: "AuthApiError", status: 422, message: "Signups not allowed for otp" }, "send"), "Couldn't send a code. Check the email address and try again.");
+assert.equal(otpErrorMessage({ name: "AuthApiError", status: 429 }, "send"), "Too many attempts. Wait a minute, then try again.");
+assert.equal(otpErrorMessage({ name: "AuthRetryableFetchError", status: 0 }, "verify"), "Couldn't reach the server. Check your connection and try again.");
+assert.equal(otpErrorMessage(new TypeError("Failed to fetch"), "send"), "Couldn't reach the server. Check your connection and try again.");
+
+// Home reminders use per-reminder local-date windows; the exact Election Day messages show only on their day.
+const reminderOn = (day: string) => activeMilestone(day)?.id ?? null;
+assert.equal(reminderOn("2026-10-05"), "reg-soon");
+assert.equal(reminderOn("2026-10-15"), "early");
+assert.equal(reminderOn("2026-10-23"), "early"); // not "Election Day is tomorrow"
+assert.equal(reminderOn("2026-10-24"), null); // not "Today is Election Day"
+assert.equal(reminderOn("2026-11-01"), null);
+assert.equal(reminderOn("2026-11-02"), "eve");
+assert.equal(activeMilestone("2026-11-02")?.label, "Election Day is tomorrow — finalize your plan");
+assert.equal(reminderOn("2026-11-03"), "day");
+assert.equal(activeMilestone("2026-11-03")?.label, "Today is Election Day");
+for (const after of ["2026-11-04", "2026-11-06", "2027-01-01"]) assert.equal(reminderOn(after), null, after);
+assert.equal(reminderOn("2026-09-24"), null);
 
 // Diagnostics include the requested fields but redact identity-like values.
 const diagnostic = safeSyncError({ code: "42501", message: "permission denied for user@example.com", details: "referrer 12345678-1234-1234-1234-123456789abc", hint: "QWERTY", status: 403 });
@@ -628,7 +653,10 @@ const trustSource = await readFile(new URL("../src/screens/Trust.tsx", import.me
 assert.match(trustSource, /reminder settings/);
 const reminderSource = await readFile(new URL("../src/screens/Reminders.tsx", import.meta.url), "utf8");
 assert.match(reminderSource, /getActiveAccountId\(\) !== session\.user\.id/);
-assert.match(reminderSource, /abortSignal\(controller\.signal\)/);
+// Upsert on the signup-created row needs UPDATE(user_id), which clients lack; closing the
+// dialog must not cancel a save. Stale responses are fenced by the account checks above.
+assert.doesNotMatch(reminderSource, /from\("reminder_prefs"\)\s*\.upsert/);
+assert.doesNotMatch(reminderSource, /abortSignal/);
 const referralUi = await readFile(new URL("../src/screens/Menu.tsx", import.meta.url), "utf8");
 assert.doesNotMatch(referralUi, /verified referral/i);
 

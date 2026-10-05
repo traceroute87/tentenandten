@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useAppNavigate } from "../lib/navigation";
 import QRCode from "qrcode";
 import { Button, useToast } from "../components/ui";
@@ -9,6 +9,7 @@ import { STATES } from "../data";
 import { copyText, referralUrl } from "../lib/share";
 import { track } from "../analytics";
 import { InstallCard, InstallInstructionsList } from "../components/InstallCard";
+import { normalizeOtp, OTP_MAX_LENGTH, OTP_MIN_LENGTH, OTP_RESEND_SECONDS } from "../lib/otp";
 import {
   IcoUser,
   IcoQr,
@@ -26,7 +27,7 @@ type View = "root" | "referral" | "reminders" | "privacy" | "about" | "install";
 export function MenuSheet({ onClose }: { onClose: () => void }) {
   const nav = useAppNavigate();
   const [view, setView] = useState<View>("root");
-  const { session, configured, signIn, signOut } = useAuth();
+  const { session, configured, requestCode, verifyCode, signOut } = useAuth();
   const profile = useStore((s) => s.profile);
   const toast = useToast();
 
@@ -51,7 +52,7 @@ export function MenuSheet({ onClose }: { onClose: () => void }) {
         <span className="brand__tag">Small actions. Big impact.</span>
       </div>
 
-      {configured && !session && <SignIn onSignIn={signIn} />}
+      {configured && !session && <SignIn requestCode={requestCode} verifyCode={verifyCode} />}
       {session && (
         <p className="note" style={{ marginBottom: 8 }}>
           Signed in as {session.user.email}
@@ -140,45 +141,118 @@ function NameRow({ name, onSave }: { name?: string; onSave: (n: string) => void 
   );
 }
 
-function SignIn({ onSignIn }: { onSignIn: (email: string) => Promise<{ ok: boolean; error?: string }> }) {
+type AuthResult = Promise<{ ok: boolean; error?: string }>;
+
+function SignIn({ requestCode, verifyCode }: { requestCode: (email: string) => AuthResult; verifyCode: (email: string, code: string) => AuthResult }) {
   const [email, setEmail] = useState("");
-  const [sent, setSent] = useState(false);
+  const [sentTo, setSentTo] = useState("");
+  const [code, setCode] = useState("");
+  const [busy, setBusy] = useState(false);
+  const busyRef = useRef(false); // blocks a second click before the disabled state renders
   const [err, setErr] = useState("");
-  if (sent)
+  const [notice, setNotice] = useState("");
+  const [cooldown, setCooldown] = useState(0);
+  const codeRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    if (!cooldown) return;
+    const timer = window.setTimeout(() => setCooldown((s) => Math.max(0, s - 1)), 1000);
+    return () => window.clearTimeout(timer);
+  }, [cooldown]);
+  useEffect(() => {
+    if (sentTo) codeRef.current?.focus();
+  }, [sentTo]);
+
+  const run = async (work: () => Promise<void>) => {
+    if (busyRef.current) return;
+    busyRef.current = true;
+    setBusy(true);
+    setErr("");
+    setNotice("");
+    try {
+      await work();
+    } finally {
+      busyRef.current = false;
+      setBusy(false);
+    }
+  };
+  const send = (address: string, resend: boolean) => run(async () => {
+    const r = await requestCode(address);
+    if (!r.ok) { setErr(r.error ?? "Couldn't send a code. Try again."); return; }
+    setSentTo(address);
+    setCooldown(OTP_RESEND_SECONDS);
+    if (resend) { setCode(""); setNotice("We sent a new code. Use the newest email."); codeRef.current?.focus(); }
+  });
+  const verify = () => run(async () => {
+    const r = await verifyCode(sentTo, code);
+    // On success the session takes over and this form unmounts.
+    if (!r.ok) setErr(r.error ?? "That code is invalid or has expired.");
+  });
+
+  if (sentTo)
     return (
-      <div className="card--paper" style={{ marginBottom: 12 }}>
-        Check your email for a sign-in link.
-      </div>
+      <form className="card--paper menu-signin" style={{ marginBottom: 14 }} noValidate onSubmit={(e) => { e.preventDefault(); if (code.length >= OTP_MIN_LENGTH) void verify(); }}>
+        <b style={{ display: "block", marginBottom: 4 }}>Check your email</b>
+        <p className="note" style={{ marginBottom: 10 }}>
+          We sent a code to:<br /><b style={{ overflowWrap: "anywhere" }}>{sentTo}</b>
+        </p>
+        <label className="field" style={{ marginBottom: 8 }}>
+          <span className="field__label">Verification code</span>
+          <input
+            ref={codeRef}
+            className="input"
+            name="one-time-code"
+            autoComplete="one-time-code"
+            inputMode="numeric"
+            pattern="[0-9]*"
+            maxLength={OTP_MAX_LENGTH}
+            value={code}
+            onChange={(e) => setCode(normalizeOtp(e.target.value))}
+            aria-invalid={Boolean(err)}
+            aria-describedby={err ? "signin-error" : undefined}
+          />
+        </label>
+        {err && <p id="signin-error" role="alert" className="note" style={{ color: "var(--red-strong)" }}>{err}</p>}
+        {notice && <p role="status" className="note">{notice}</p>}
+        <Button block type="submit" disabled={busy || code.length < OTP_MIN_LENGTH}>
+          {busy ? "Verifying…" : "Verify code"}
+        </Button>
+        <div className="menu-signin__secondary" style={{ display: "flex", flexWrap: "wrap", gap: 8, marginTop: 8 }}>
+          <Button size="sm" variant="ghost" type="button" disabled={busy || cooldown > 0} onClick={() => void send(sentTo, true)}>
+            {cooldown > 0 ? `Resend code (${cooldown}s)` : "Resend code"}
+          </Button>
+          <Button size="sm" variant="ghost" type="button" disabled={busy} onClick={() => { setSentTo(""); setCode(""); setErr(""); setNotice(""); }}>
+            Use a different email
+          </Button>
+        </div>
+      </form>
     );
   return (
-    <div className="card--paper menu-signin" style={{ marginBottom: 14 }}>
-      <b style={{ display: "block", marginBottom: 4 }}>Create an account (optional)</b>
+    <form className="card--paper menu-signin" style={{ marginBottom: 14 }} noValidate onSubmit={(e) => { e.preventDefault(); if (email.trim().includes("@")) void send(email.trim(), false); }}>
+      <b style={{ display: "block", marginBottom: 4 }}>Sign in</b>
       <p className="note" style={{ marginBottom: 10 }}>
-        For syncing your challenge across devices and getting a referral link. Current guest progress can be adopted once; each account stays separate.
+        Optional. For syncing your challenge across devices and getting a referral link. Current guest progress can be adopted once; each account stays separate.
       </p>
-      <input
-        className="input"
-        aria-label="Email address"
-        type="email"
-        inputMode="email"
-        placeholder="you@example.com"
-        value={email}
-        onChange={(e) => setEmail(e.target.value)}
-        style={{ marginBottom: 8 }}
-      />
-      {err && <p className="note" style={{ color: "var(--red-strong)" }}>{err}</p>}
-      <Button
-        block
-        disabled={!email.includes("@")}
-        onClick={async () => {
-          const r = await onSignIn(email.trim());
-          if (r.ok) setSent(true);
-          else setErr(r.error ?? "Something went wrong");
-        }}
-      >
-        Email Me a Sign-In Link
+      <label className="field" style={{ marginBottom: 8 }}>
+        <span className="field__label">Email</span>
+        <input
+          className="input"
+          type="email"
+          inputMode="email"
+          autoComplete="email"
+          placeholder="you@example.com"
+          value={email}
+          onChange={(e) => setEmail(e.target.value)}
+          aria-invalid={Boolean(err)}
+          aria-describedby={err ? "signin-error" : "signin-hint"}
+        />
+      </label>
+      {err && <p id="signin-error" role="alert" className="note" style={{ color: "var(--red-strong)" }}>{err}</p>}
+      <Button block type="submit" disabled={busy || !email.trim().includes("@")}>
+        {busy ? "Sending…" : "Send code"}
       </Button>
-    </div>
+      <p id="signin-hint" className="note" style={{ marginTop: 8 }}>We'll email you a verification code.</p>
+    </form>
   );
 }
 

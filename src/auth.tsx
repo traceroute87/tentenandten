@@ -1,4 +1,4 @@
-/* Optional accounts (Supabase magic link). Guest-first: the app is fully
+/* Optional accounts (Supabase email one-time code). Guest-first: the app is fully
    usable with no session. On sign-in we merge local progress up, link any
    pending referral, and mirror future changes to Postgres. */
 import {
@@ -25,6 +25,7 @@ import {
 import { track } from "./analytics";
 import { catchUpServerCycle, mergeBeforeWrite, persistProgressAndArchive } from "./lib/sync";
 import { logSyncFailure } from "./lib/sync-diagnostics";
+import { otpErrorMessage } from "./lib/otp";
 
 type AuthState = {
   configured: boolean;
@@ -32,7 +33,8 @@ type AuthState = {
   ready: boolean;
   syncError: string;
   retrySync: () => void;
-  signIn: (email: string) => Promise<{ ok: boolean; error?: string }>;
+  requestCode: (email: string) => Promise<{ ok: boolean; error?: string }>;
+  verifyCode: (email: string, code: string) => Promise<{ ok: boolean; error?: string }>;
   signOut: () => Promise<void>;
 };
 
@@ -42,7 +44,8 @@ const Ctx = createContext<AuthState>({
   ready: true,
   syncError: "",
   retrySync: () => {},
-  signIn: async () => ({ ok: false, error: "Backend not configured" }),
+  requestCode: async () => ({ ok: false, error: "Backend not configured" }),
+  verifyCode: async () => ({ ok: false, error: "Backend not configured" }),
   signOut: async () => {},
 });
 
@@ -294,22 +297,39 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       const current = sessionRef.current;
       if (current) void syncAccount(current).catch(() => {});
     },
-    async signIn(email) {
+    // Emails a one-time code; the code is entered on this device, so the email can be
+    // read anywhere. Supabase creates the account on first sign-in either way, so the
+    // response never reveals whether the address already had one.
+    async requestCode(email) {
       if (!supabase) return { ok: false, error: "Backend not configured" };
       const ref = getState().profile.referredBy;
       try {
         const { error } = await supabase.auth.signInWithOtp({
           email,
           options: {
-            // Land in the app, not the marketing page at "/".
+            shouldCreateUser: true,
+            // Only used if the email template still contains a sign-in link.
             emailRedirectTo: `${window.location.origin}/?app=1`,
             data: ref ? { referred_by_code: ref } : undefined,
           },
         });
+        if (error) return { ok: false, error: otpErrorMessage(error, "send") };
         track("magic_link_requested");
-        return error ? { ok: false, error: error.message } : { ok: true };
-      } catch {
-        return { ok: false, error: "Could not send the email. Check your connection and try again." };
+        return { ok: true };
+      } catch (error) {
+        return { ok: false, error: otpErrorMessage(error, "send") };
+      }
+    },
+    // On success Supabase stores the session and emits SIGNED_IN; the existing
+    // onAuthStateChange handler then activates the account namespace and syncs.
+    async verifyCode(email, code) {
+      if (!supabase) return { ok: false, error: "Backend not configured" };
+      try {
+        const { data, error } = await supabase.auth.verifyOtp({ email, token: code, type: "email" });
+        if (error || !data.session) return { ok: false, error: otpErrorMessage(error, "verify") };
+        return { ok: true };
+      } catch (error) {
+        return { ok: false, error: otpErrorMessage(error, "verify") };
       }
     },
     async signOut() {

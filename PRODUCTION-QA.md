@@ -16,7 +16,7 @@ Do not deploy until these checks pass on a production-like build.
 - [ ] Voting, first-run state setup (select and Skip), and upcoming elections
 - [ ] State/local official lookup and Help flows
 - [ ] Add to Calendar download and opening the `.ics` file
-- [ ] Magic-link login; refresh persistence; sign-out/sign-in persistence
+- [ ] Email-code login (request on one device, read the email on another, enter the code on the first); refresh persistence; sign-out/sign-in persistence
 - [ ] Offline changes and reconnect sync
 - [ ] Referral link; referral QR on a second device/session; attribution after signup
 - [ ] Challenge-start verification and Impact
