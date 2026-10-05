@@ -13,3 +13,9 @@ qa/
 
 # Generated
 *.tsbuildinfo
+
+# Local development artifacts
+Capitol.jpg
+Capitol(1).jpg
+state-election-resource-validation.json
+test/
