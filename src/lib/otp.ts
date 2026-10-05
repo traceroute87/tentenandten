@@ -22,3 +22,19 @@ export function otpErrorMessage(error: unknown, step: "send" | "verify"): string
     ? "That code is invalid or has expired."
     : "Couldn't send a code. Check the email address and try again.";
 }
+
+const CALLBACK_ERROR_KEYS = ["error", "error_code", "error_description"];
+
+/** An old or reused sign-in link lands with error params in the hash or query, which the
+    auth client rejects silently. Returns the URL without those params, or null if none. */
+export function stripAuthCallbackError(href: string): string | null {
+  const url = new URL(href);
+  const hash = new URLSearchParams(url.hash.slice(1));
+  const isError = (params: URLSearchParams) => params.has("error_code") || params.has("error_description");
+  if (!isError(hash) && !isError(url.searchParams)) return null;
+  for (const key of CALLBACK_ERROR_KEYS) { hash.delete(key); url.searchParams.delete(key); }
+  url.hash = hash.toString();
+  return url.toString();
+}
+
+export const AUTH_LINK_ERROR = "That sign-in link is invalid or has expired. Open the menu to get a new sign-in code.";

@@ -12,7 +12,7 @@ import {
   type ReactNode,
 } from "react";
 import { createPortal } from "react-dom";
-import { useLocation, useNavigate } from "react-router-dom";
+import { useLocation, useNavigate, useNavigationType } from "react-router-dom";
 import * as I from "../lib/icons";
 import type { OfficialSource } from "../data";
 import { sheetStack, stateWithSheetStack } from "../lib/sheet-history";
@@ -146,6 +146,27 @@ export function Bar({ value, max }: { value: number; max: number }) {
 }
 
 /* ---------- Sheet ---------- */
+/** Sheets currently open. A history entry whose top sheet is not open is stale. */
+const openSheetIds = new Set<string>();
+
+/** Forward (or a reload) can land on a sheet's history entry after that sheet closed: nothing
+    visible changes and the next Back looks dead. Step back off the stale entry, or just drop
+    its marker if there is no earlier entry. Mounted once, inside the router. */
+export function useDiscardStaleSheetEntries() {
+  const location = useLocation();
+  const navigate = useNavigate();
+  const navigationType = useNavigationType();
+  useEffect(() => {
+    const top = sheetStack(location.state).at(-1);
+    if (!top || openSheetIds.has(top) || navigationType !== "POP") return;
+    const idx = (window.history.state as { idx?: number } | null)?.idx ?? 0;
+    if (idx > 0) navigate(-1);
+    else navigate({ pathname: location.pathname, search: location.search, hash: location.hash }, {
+      replace: true, state: stateWithSheetStack(location.state, []), preventScrollReset: true,
+    });
+  }, [location.key]); // eslint-disable-line react-hooks/exhaustive-deps
+}
+
 export function Sheet({
   open,
   onClose,
@@ -176,6 +197,11 @@ export function Sheet({
   const [dragY, setDragY] = useState(0);
   const [hasDragged, setHasDragged] = useState(false);
   closeRef.current = onClose;
+  useLayoutEffect(() => {
+    if (!open) return;
+    openSheetIds.add(id);
+    return () => { openSheetIds.delete(id); };
+  }, [open, id]);
   useLayoutEffect(() => {
     const stack = sheetStack(location.state);
     // Pop only while the browser is still on this sheet's entry. A navigation made in the

@@ -4,7 +4,7 @@
 import { supabase, backendConfigured } from "./lib/supabase.ts";
 import { validAnalyticsEvent } from "./lib/analytics-schema.ts";
 
-type Event = { session_id: string; event: string; props?: Record<string, unknown>; ts: string };
+export type Event = { session_id: string; event: string; props?: Record<string, unknown>; ts: string };
 
 const QUEUE_KEY = "t10.analytics.queue";
 const SID_KEY = "t10.sid";
@@ -46,6 +46,22 @@ function writeQueue(q: Event[]) {
   }
 }
 
+/** Sends queued events in order and returns the ones now handled. A server rejection
+    (4xx other than 408/429) can never succeed on retry, so that event is dropped and
+    delivery continues; network errors, 5xx, 408 and 429 stop the run and keep the rest. */
+export async function deliverQueue(queue: Event[], send: (event: Event) => Promise<number>): Promise<Event[]> {
+  const handled: Event[] = [];
+  for (const event of queue) {
+    if (!validAnalyticsEvent(event.event, event.props)) { handled.push(event); continue; }
+    let status: number;
+    try { status = await send(event); } catch { break; }
+    const rejected = status >= 400 && status < 500 && status !== 408 && status !== 429;
+    if ((status >= 200 && status < 300) || rejected) handled.push(event);
+    else break;
+  }
+  return handled;
+}
+
 let flushing = false;
 export async function flush() {
   if (flushing || !navigator.onLine) return;
@@ -54,19 +70,16 @@ export async function flush() {
   flushing = true;
   try {
     if (backendConfigured && supabase) {
-      const delivered: Event[] = [];
-      for (const event of q) {
-        if (!validAnalyticsEvent(event.event, event.props)) { delivered.push(event); continue; }
-        const { error } = await supabase.rpc("record_analytics_event", {
+      const handled = await deliverQueue(q, async (event) => {
+        const { error, status } = await supabase!.rpc("record_analytics_event", {
           p_session_id: event.session_id,
           p_event: event.event,
           p_props: event.props ?? {},
         });
-        if (error) break;
-        delivered.push(event);
-      }
-      if (delivered.length) {
-        const sent = new Set(delivered.map((event) => `${event.session_id}|${event.ts}|${event.event}`));
+        return error ? status : 204;
+      });
+      if (handled.length) {
+        const sent = new Set(handled.map((event) => `${event.session_id}|${event.ts}|${event.event}`));
         writeQueue(readQueue().filter((event) => !sent.has(`${event.session_id}|${event.ts}|${event.event}`)));
       }
     }

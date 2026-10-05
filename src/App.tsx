@@ -103,7 +103,14 @@ function RuntimeDiagnostics() {
 }
 
 function SyncNotice() {
-  const { session, syncError, retrySync } = useAuth();
+  const { session, syncError, retrySync, authNotice, dismissAuthNotice } = useAuth();
+  if (authNotice)
+    return (
+      <div className="sync-notice" role="alert">
+        <span>{authNotice}</span>
+        <button className="btn btn--sm" onClick={dismissAuthNotice}>OK</button>
+      </div>
+    );
   if (!session || !syncError) return null;
   return (
     <div className="sync-notice" role="alert">
