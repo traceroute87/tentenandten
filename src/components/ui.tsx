@@ -128,7 +128,7 @@ export function MarkerDots({
             aria-label={done ? `${i + 1} of ${max} complete — tap to undo` : `${i + 1} of ${max}`}
             onClick={isLast && onUndoLast ? onUndoLast : undefined}
           >
-            {trackId === "bring" ? i + 1 : ""}
+            {i + 1}
           </button>
         );
       })}

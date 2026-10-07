@@ -107,6 +107,7 @@ await check("mobile Message Presets: one mount, page not remounted, Back closes 
 });
 
 await check("Challenge tabs: switching Reach/Share/Bring does not remount or re-animate the page", async () => {
+  const labels = Array.from({ length: 10 }, (_, i) => String(i + 1));
   for (const viewport of [{ width: 1280, height: 900 }, { width: 390, height: 844 }]) {
     const { ctx, page } = await openPage(viewport, "/challenge/reach");
     try {
@@ -116,6 +117,7 @@ await check("Challenge tabs: switching Reach/Share/Bring does not remount or re-
         const running = await page.evaluate(() =>
           document.querySelector(".screen__body")?.getAnimations().filter((a) => a.playState === "running").length ?? 0);
         assert.equal(running, 0, `${viewport.width}px ${tab}: page entrance animation replayed`);
+        assert.deepEqual((await page.locator(".marker").allTextContents()).map((text) => text.trim()), labels, `${viewport.width}px ${tab}: markers are not numbered 1-10`);
         await page.waitForTimeout(250);
       }
       const mounts = await page.evaluate(() => window.__mounts);
