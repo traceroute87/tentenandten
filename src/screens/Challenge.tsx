@@ -222,18 +222,38 @@ export default function Challenge() {
   );
 }
 
+/* Digits only, keeping a leading +: "+1 (555) 123-4567" -> "+15551234567". */
+function sanitizeTel(raw: string): string {
+  return raw.trim().replace(/(?!^\+)\D/g, "");
+}
+
+function needsIosPhoneField(): boolean {
+  const ua = navigator.userAgent;
+  const ios = /iPad|iPhone|iPod/.test(ua) || (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);
+  if (!ios) return false;
+  const standalone = window.matchMedia("(display-mode: standalone)").matches ||
+    (navigator as Navigator & { standalone?: boolean }).standalone === true;
+  const safari = /Safari/i.test(ua) && !/CriOS|FxiOS|EdgiOS|OPiOS/i.test(ua);
+  return safari || standalone;
+}
+
 /* Reach: contact picker is progressive enhancement; everything works without it. */
 function ReachActions({ onComplete, done }: { onComplete: () => void; done: boolean }) {
   const toast = useToast();
+  const ios = needsIosPhoneField();
+  const [number, setNumber] = useState("");
   const hasPicker =
-    "contacts" in navigator && typeof (navigator as any).contacts?.select === "function";
+    ios && typeof (navigator as any).contacts?.select === "function";
+  const tel = sanitizeTel(number);
+  const canCall = tel.replace(/\D/g, "").length >= 7;
 
+  /* The picker only fills the number field. Never navigate after it resolves. */
   async function pick() {
     try {
       // @ts-expect-error - Contact Picker API, not in TS lib
-      const [c] = await navigator.contacts.select(["tel", "name"], { multiple: false });
-      const tel = c?.tel?.[0];
-      if (tel) location.href = `tel:${tel}`;
+      const [c] = await navigator.contacts.select(["tel"], { multiple: false });
+      const picked = c?.tel?.[0];
+      if (picked) setNumber(picked);
       else toast("No number for that contact");
     } catch {
       /* cancelled / unsupported */
@@ -244,10 +264,32 @@ function ReachActions({ onComplete, done }: { onComplete: () => void; done: bool
 
   return (
     <div className="track__actions">
+      {ios && (
+        <label className="field">
+          <span className="field__label">Phone number</span>
+          <input
+            className="input"
+            type="tel"
+            inputMode="tel"
+            autoComplete="off"
+            placeholder="Phone number"
+            value={number}
+            onChange={(e) => setNumber(e.target.value)}
+          />
+        </label>
+      )}
       <div className="action-grid action-grid--3">
         {REACH_ACTIONS.filter((a) => a.id !== "already").map((a) => {
+          if (ios && a.id === "call" && !canCall) {
+            return (
+              <button key={a.id} type="button" className="chip" disabled>
+                <Ico name={a.icon} /> {a.label}
+              </button>
+            );
+          }
           const href =
-            a.id === "call" ? "tel:" : a.id === "text" ? "sms:" : "mailto:";
+            a.id === "call" ? (ios ? `tel:${tel}` : "tel:") :
+              a.id === "text" ? (ios ? `sms:${tel}` : "sms:") : "mailto:";
           return (
             <a key={a.id} className="chip" href={href}>
               <Ico name={a.icon} /> {a.label}
